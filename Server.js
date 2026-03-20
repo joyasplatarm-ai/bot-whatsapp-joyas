@@ -6,58 +6,287 @@ app.use(express.json());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 
+// Chats en modo humano con vencimiento
+const humanModeUntil = new Map();
+
+// Evitar repetir la misma respuesta muy seguido
+const lastReplies = new Map();
+
+// Tiempo en modo humano: 30 minutos
+const HUMAN_MODE_MINUTES = 30;
+const HUMAN_MODE_MS = HUMAN_MODE_MINUTES * 60 * 1000;
+
+// Tiempo para evitar repetir la misma respuesta: 10 minutos
+const REPLY_COOLDOWN_MS = 10 * 60 * 1000;
+
 app.get("/", (req, res) => {
   res.send("Bot activo");
 });
 
-// 🔐 Verificación del webhook
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("Webhook verificado");
     return res.status(200).send(challenge);
-  } else {
-    return res.sendStatus(403);
   }
+
+  return res.sendStatus(403);
 });
 
-// 📩 Recepción de mensajes
 app.post("/webhook", async (req, res) => {
   try {
-    console.log("WEBHOOK RECIBIDO:");
-    console.log(JSON.stringify(req.body, null, 2));
-
     const body = req.body;
-
-    const message =
-      body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
-    const phoneNumberId =
-      body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+    const value = body.entry?.[0]?.changes?.[0]?.value;
+    const message = value?.messages?.[0];
+    const phoneNumberId = value?.metadata?.phone_number_id;
 
     if (!message || !phoneNumberId) {
-      console.log("No hay mensaje o phoneNumberId");
+      return res.sendStatus(200);
+    }
+
+    if (message.type !== "text") {
       return res.sendStatus(200);
     }
 
     const from = message.from;
-    const text = (message.text?.body || "").toLowerCase();
+    const text = (message.text?.body || "").toLowerCase().trim();
+    const now = Date.now();
 
-    let reply = "Hola 👋 gracias por escribir a Joyas Plata RM 💎";
+    // Si está en modo humano y aún no vence, el bot no responde
+    const humanUntil = humanModeUntil.get(from);
+    if (humanUntil && now < humanUntil) {
+      console.log(`Modo humano activo para ${from} hasta ${new Date(humanUntil).toISOString()}`);
+      return res.sendStatus(200);
+    }
 
-    if (text.includes("hola")) {
-      reply = "Hola 👋 Bienvenido a Joyas Plata RM 💎\n\nEscribe:\n- catálogo\n- precios\n- dirección\n- horario";
-    } else if (text.includes("catalogo") || text.includes("catálogo")) {
-      reply = "💎 Para ver el catálogo, solicítalo por este medio y te ayudamos al instante.";
-    } else if (text.includes("direccion") || text.includes("dirección")) {
-      reply = "📍 Estamos en Eliodoro Yáñez 1200, Providencia.\nVisitas solo con hora agendada.";
-    } else if (text.includes("horario")) {
-      reply = "🕒 Lunes a viernes: 12:30 a 19:00\nSábado: 12:00 a 16:00";
-    } else if (text.includes("precio") || text.includes("precios")) {
-      reply = "💎 Tenemos valores por gramo, medio kilo y kilo. Escríbenos qué buscas.";
+    // Si venció, lo limpiamos
+    if (humanUntil && now >= humanUntil) {
+      humanModeUntil.delete(from);
+    }
+
+    let reply =
+      "Hola 👋 Bienvenido a Joyas Plata RM 💎\n\nPor este medio trabajamos solo con lotes listos disponibles.\n\nEscribe:\n• catálogo\n• precios\n• dirección\n• horario\n• envíos";
+
+    // HABLAR CON PERSONA / VENDEDOR
+    if (
+      text.includes("hablar contigo") ||
+      text.includes("hablar con vendedor") ||
+      text.includes("hablar con alguien") ||
+      text.includes("quiero hablar con alguien") ||
+      text.includes("quiero hablar contigo") ||
+      text.includes("quiero hablar con vendedor") ||
+      text.includes("asesor") ||
+      text.includes("ejecutivo") ||
+      text.includes("vendedor") ||
+      text.includes("humano") ||
+      text.includes("persona") ||
+      text.includes("atencion") ||
+      text.includes("atención")
+    ) {
+      reply = "Perfecto 💎\n\nTe ayudaremos por este medio a la brevedad.";
+      humanModeUntil.set(from, now + HUMAN_MODE_MS);
+    }
+
+    // CATÁLOGO / FOTOS
+    else if (
+      text.includes("catalogo") ||
+      text.includes("catálogo") ||
+      text.includes("fotos") ||
+      text.includes("modelos") ||
+      text.includes("muestrame") ||
+      text.includes("muéstrame")
+    ) {
+      reply =
+        "Perfecto 💎\n\nPor este medio trabajamos solo con *lotes listos disponibles*.\nEn unos momentos te enviaremos imágenes del stock disponible por este medio.\n\nSi buscas compra a elección o personalizada, eso se realiza solo presencial en oficina.\nTambién puedes revisar productos unitarios en nuestra web:\nWww.joyasplatarm.com";
+    }
+
+    // DIRECCIÓN / UBICACIÓN
+    else if (
+      text.includes("direccion") ||
+      text.includes("dirección") ||
+      text.includes("ubicacion") ||
+      text.includes("ubicación") ||
+      text.includes("donde estan") ||
+      text.includes("dónde están") ||
+      text.includes("donde se ubican") ||
+      text.includes("dónde se ubican") ||
+      text.includes("donde quedan") ||
+      text.includes("dónde quedan")
+    ) {
+      reply =
+        "📍 Estamos en Eliodoro Yáñez 1200, Providencia.\n\nVisitas solo con hora agendada.";
+    }
+
+    // HORARIO DE ATENCIÓN
+    else if (
+      text.includes("horario") ||
+      text.includes("atienden") ||
+      text.includes("abren") ||
+      text.includes("hora de atencion") ||
+      text.includes("hora de atención") ||
+      text.includes("que hora atienden") ||
+      text.includes("qué hora atienden")
+    ) {
+      reply =
+        "🕒 Horarios de atención:\nLunes a viernes: 12:30 a 19:00\nSábado: 12:00 a 16:00";
+    }
+
+    // PRECIOS / VALORES
+    else if (
+      text.includes("precio") ||
+      text.includes("precios") ||
+      text.includes("valor") ||
+      text.includes("valores") ||
+      text.includes("cuanto sale") ||
+      text.includes("cuánto sale") ||
+      text.includes("cuanto vale") ||
+      text.includes("cuánto vale")
+    ) {
+      reply =
+        "💎 Trabajamos valores por gramo, medio kilo y kilo.\n\nSi quieres, te orientamos según el tipo de lote que buscas.";
+    }
+
+    // COMPROBANTES
+    else if (
+      text.includes("comprobante") ||
+      text.includes("comprobantes") ||
+      text.includes("boleta") ||
+      text.includes("boletas") ||
+      text.includes("cuando mandan comprobante") ||
+      text.includes("cuándo mandan comprobante") ||
+      text.includes("cuando envian comprobante") ||
+      text.includes("cuándo envían comprobante") ||
+      text.includes("cuando mandan los comprobantes") ||
+      text.includes("cuándo mandan los comprobantes")
+    ) {
+      reply = "📩 Los comprobantes se envían durante la noche del mismo día.";
+    }
+
+    // HORA DE ENVÍO / DESPACHO
+    else if (
+      text.includes("a que hora envian") ||
+      text.includes("a qué hora envían") ||
+      text.includes("a que hora despachan") ||
+      text.includes("a qué hora despachan") ||
+      text.includes("horario de envio") ||
+      text.includes("horario de envío") ||
+      text.includes("hora envio") ||
+      text.includes("hora envío") ||
+      text.includes("hora despacho") ||
+      text.includes("en que horario envian") ||
+      text.includes("en qué horario envían")
+    ) {
+      reply = "🚚 Los envíos se realizan durante la tarde del día correspondiente.";
+    }
+
+    // DÍAS DE ENVÍO / EMPRESAS DE ENVÍO
+    else if (
+      text.includes("envio") ||
+      text.includes("envíos") ||
+      text.includes("envío") ||
+      text.includes("despacho") ||
+      text.includes("despachan") ||
+      text.includes("cuando envian") ||
+      text.includes("cuándo envían") ||
+      text.includes("que dias envian") ||
+      text.includes("qué días envían") ||
+      text.includes("dias de envio") ||
+      text.includes("días de envío") ||
+      text.includes("por donde envian") ||
+      text.includes("por dónde envían") ||
+      text.includes("empresa de envio") ||
+      text.includes("empresa de envío")
+    ) {
+      reply =
+        "📦 Días de envío:\n\n" +
+        "• Lunes: Chilexpress y Bluexpress\n" +
+        "• Miércoles: Chilexpress, Bluexpress y Starken\n" +
+        "• Viernes: Chilexpress, Bluexpress y Starken\n\n" +
+        "⚠️ Importante:\n" +
+        "Los envíos NO se realizan el mismo día del pago.\n\n" +
+        "• Para envío lunes → pagos hasta domingo\n" +
+        "• Para envío miércoles → pagos hasta martes\n" +
+        "• Para envío viernes → pagos hasta jueves";
+    }
+
+    // TIPO DE PLATA
+    else if (
+      text.includes("plata") ||
+      text.includes("material") ||
+      text.includes("son de plata") ||
+      text.includes("tipo de plata") ||
+      text.includes("que plata trabajan") ||
+      text.includes("qué plata trabajan") ||
+      text.includes("trabajan plata") ||
+      text.includes("de que material son") ||
+      text.includes("de qué material son")
+    ) {
+      reply = "💎 Trabajamos plata italiana y nacional.";
+    }
+
+    // PERSONALIZADO / A ELECCIÓN
+    else if (
+      text.includes("personalizado") ||
+      text.includes("personalizada") ||
+      text.includes("a eleccion") ||
+      text.includes("a elección") ||
+      text.includes("elegir") ||
+      text.includes("escoger") ||
+      text.includes("unitario") ||
+      text.includes("unitarios")
+    ) {
+      reply =
+        "💎 La compra a elección o personalizada se realiza solo presencial en oficina, con hora agendada.\n\nPor este medio trabajamos solo con lotes listos disponibles.\n\nTambién puedes revisar productos unitarios en nuestra web:\nWww.joyasplatarm.com";
+    }
+
+    // WEB / PÁGINA
+    else if (
+      text.includes("web") ||
+      text.includes("pagina") ||
+      text.includes("página") ||
+      text.includes("sitio web") ||
+      text.includes("pagina web") ||
+      text.includes("página web")
+    ) {
+      reply = "🌐 Puedes revisar productos unitarios a elección en nuestra web:\nWww.joyasplatarm.com";
+    }
+
+    // AGENDAR VISITA
+    else if (
+      text.includes("agendar") ||
+      text.includes("agendo") ||
+      text.includes("visita") ||
+      text.includes("quiero ir") ||
+      text.includes("presencial")
+    ) {
+      reply =
+        "📅 Para agendar visita presencial, indícanos:\n• Nombre y apellido\n• Día\n• Hora estimada\n\nVisitas solo con hora agendada.";
+    }
+
+    // SALUDO
+    else if (
+      text.includes("hola") ||
+      text.includes("buenas") ||
+      text.includes("buenos dias") ||
+      text.includes("buenos días") ||
+      text.includes("buenas tardes") ||
+      text.includes("buenas noches")
+    ) {
+      reply =
+        "Hola 👋 Bienvenido a Joyas Plata RM 💎\n\nPor este medio trabajamos solo con lotes listos disponibles.\n\nEscribe:\n• catálogo\n• precios\n• dirección\n• horario\n• envíos";
+    }
+
+    // Evita repetir exactamente la misma respuesta dentro de 10 minutos
+    const previous = lastReplies.get(from);
+    if (
+      previous &&
+      previous.reply === reply &&
+      now - previous.timestamp < REPLY_COOLDOWN_MS
+    ) {
+      console.log(`Respuesta repetida evitada para ${from}`);
+      return res.sendStatus(200);
     }
 
     const response = await fetch(
@@ -66,18 +295,23 @@ app.post("/webhook", async (req, res) => {
         method: "POST",
         headers: {
           Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
           messaging_product: "whatsapp",
           to: from,
-          text: { body: reply },
-        }),
+          text: { body: reply }
+        })
       }
     );
 
     const data = await response.text();
     console.log("RESPUESTA META:", response.status, data);
+
+    lastReplies.set(from, {
+      reply,
+      timestamp: now
+    });
 
     return res.sendStatus(200);
   } catch (error) {
