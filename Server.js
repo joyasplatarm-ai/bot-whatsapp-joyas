@@ -19,6 +19,17 @@ const HUMAN_MODE_MS = HUMAN_MODE_MINUTES * 60 * 1000;
 // Tiempo para evitar repetir la misma respuesta: 10 minutos
 const REPLY_COOLDOWN_MS = 10 * 60 * 1000;
 
+const WELCOME_MESSAGE =
+  "Hola 👋 gracias por comunicarte con *JOYAS PLATA RM* 💎\n\n" +
+  "Contamos con oficina en Providencia y enviamos a todo Chile 🇨🇱\n\n" +
+  "Por este medio trabajamos solo con *lotes listos disponibles*.\n\n" +
+  "Escribe:\n" +
+  "• catálogo\n" +
+  "• dirección\n" +
+  "• horario\n" +
+  "• envíos\n" +
+  "• agendar visita";
+
 app.get("/", (req, res) => {
   res.send("Bot activo");
 });
@@ -66,8 +77,7 @@ app.post("/webhook", async (req, res) => {
       humanModeUntil.delete(from);
     }
 
-    let reply =
-      "Hola 👋 Bienvenido a Joyas Plata RM 💎\n\nPor este medio trabajamos solo con lotes listos disponibles.\n\nEscribe:\n• catálogo\n• precios\n• dirección\n• horario\n• envíos";
+    let reply = WELCOME_MESSAGE;
 
     // HABLAR CON PERSONA / VENDEDOR
     if (
@@ -99,7 +109,12 @@ app.post("/webhook", async (req, res) => {
       text.includes("muéstrame")
     ) {
       reply =
-        "Perfecto 💎\n\nPor este medio trabajamos solo con *lotes listos disponibles*.\nEn unos momentos te enviaremos imágenes del stock disponible por este medio.\n\nSi buscas compra a elección o personalizada, eso se realiza solo presencial en oficina.\nTambién puedes revisar productos unitarios en nuestra web:\nWww.joyasplatarm.com";
+        "Perfecto 💎\n\n" +
+        "Por este medio trabajamos solo con *lotes listos disponibles*.\n" +
+        "En unos momentos te enviaremos imágenes del stock disponible por este medio.\n\n" +
+        "Si buscas compra a elección o personalizada, eso se realiza solo presencial en oficina.\n" +
+        "También puedes revisar productos unitarios en nuestra web:\n" +
+        "Www.joyasplatarm.com";
     }
 
     // DIRECCIÓN / UBICACIÓN
@@ -116,7 +131,8 @@ app.post("/webhook", async (req, res) => {
       text.includes("dónde quedan")
     ) {
       reply =
-        "📍 Estamos en Eliodoro Yáñez 1200, Providencia.\n\nVisitas solo con hora agendada.";
+        "📍 Estamos en Eliodoro Yáñez 1200, Providencia.\n\n" +
+        "Visitas solo con hora agendada.";
     }
 
     // HORARIO DE ATENCIÓN
@@ -130,10 +146,66 @@ app.post("/webhook", async (req, res) => {
       text.includes("qué hora atienden")
     ) {
       reply =
-        "🕒 Horarios de atención:\nLunes a viernes: 12:30 a 19:00\nSábado: 12:00 a 16:00";
+        "🕒 Horarios de atención:\n" +
+        "Lunes a viernes: 12:30 a 19:00\n" +
+        "Sábado: 12:00 a 16:00";
     }
 
-    // PRECIOS / VALORES
+    // PRECIOS POR MEDIO KILO
+    else if (
+      text.includes("medio kilo") ||
+      text.includes("1/2 kilo") ||
+      text.includes("medio kg") ||
+      text.includes("precio medio kilo") ||
+      text.includes("precios medio kilo") ||
+      text.includes("valor medio kilo") ||
+      text.includes("valores medio kilo")
+    ) {
+      reply =
+        "💎 Precios por medio kilo:\n\n" +
+        "• Medio kilo cadenas y pulseras hombre: $250.000\n" +
+        "• Medio kilo pulseras mujer: $325.000\n" +
+        "• Medio kilo aros y medallas: $500.000";
+    }
+
+    // PRECIOS POR KILO
+    else if (
+      text.includes("por kilo") ||
+      text.includes("precio kilo") ||
+      text.includes("precios kilo") ||
+      text.includes("valor kilo") ||
+      text.includes("valores kilo") ||
+      text.includes(" kilo") ||
+      text === "kilo" ||
+      text === "kg"
+    ) {
+      reply =
+        "💎 Precios por kilo:\n\n" +
+        "• Pulseras y cadenas hombre: $440.000\n" +
+        "• Cadenas mujer: $470.000\n" +
+        "• Pulseras mujer: $620.000\n" +
+        "• Anillos mujer: $900.000\n" +
+        "• Colgante microcircon y aros: $850.000";
+    }
+
+    // PRECIOS POR GRAMO
+    else if (
+      text.includes("gramo") ||
+      text.includes("por gramo") ||
+      text.includes("valor del gramo") ||
+      text.includes("precio del gramo") ||
+      text.includes("precios por gramo") ||
+      text.includes("valores por gramo")
+    ) {
+      reply =
+        "💎 Valores por gramo:\n\n" +
+        "• Cadenas y pulseras hombre: $650 el gramo\n" +
+        "• Pulseras mujer: $700 el gramo\n" +
+        "• Aros y medallas microcircon: $1.150 el gramo\n" +
+        "• Anillos de dama: $1.400 el gramo";
+    }
+
+    // PRECIOS / VALORES GENERALES
     else if (
       text.includes("precio") ||
       text.includes("precios") ||
@@ -145,7 +217,11 @@ app.post("/webhook", async (req, res) => {
       text.includes("cuánto vale")
     ) {
       reply =
-        "💎 Trabajamos valores por gramo, medio kilo y kilo.\n\nSi quieres, te orientamos según el tipo de lote que buscas.";
+        "💎 Trabajamos valores por gramo, medio kilo y kilo.\n\n" +
+        "Si deseas un valor específico, puedes escribir por ejemplo:\n" +
+        "• valor del gramo\n" +
+        "• medio kilo\n" +
+        "• kilo";
     }
 
     // COMPROBANTES
@@ -238,7 +314,10 @@ app.post("/webhook", async (req, res) => {
       text.includes("unitarios")
     ) {
       reply =
-        "💎 La compra a elección o personalizada se realiza solo presencial en oficina, con hora agendada.\n\nPor este medio trabajamos solo con lotes listos disponibles.\n\nTambién puedes revisar productos unitarios en nuestra web:\nWww.joyasplatarm.com";
+        "💎 La compra a elección o personalizada se realiza solo presencial en oficina.\n\n" +
+        "Por este medio trabajamos solo con lotes listos disponibles.\n\n" +
+        "También puedes revisar productos unitarios en nuestra web:\n" +
+        "Www.joyasplatarm.com";
     }
 
     // WEB / PÁGINA
@@ -250,19 +329,28 @@ app.post("/webhook", async (req, res) => {
       text.includes("pagina web") ||
       text.includes("página web")
     ) {
-      reply = "🌐 Puedes revisar productos unitarios a elección en nuestra web:\nWww.joyasplatarm.com";
+      reply =
+        "🌐 Puedes revisar productos unitarios a elección en nuestra web:\n" +
+        "Www.joyasplatarm.com";
     }
 
-    // AGENDAR VISITA
+    // AGENDAR VISITA / PUEDO IR AHORA
     else if (
       text.includes("agendar") ||
       text.includes("agendo") ||
       text.includes("visita") ||
       text.includes("quiero ir") ||
-      text.includes("presencial")
+      text.includes("presencial") ||
+      text.includes("puedo ir ahora") ||
+      text.includes("se puede ir ahora") ||
+      text.includes("puedo pasar ahora") ||
+      text.includes("puedo ir hoy")
     ) {
       reply =
-        "📅 Para agendar visita presencial, indícanos:\n• Nombre y apellido\n• Día\n• Hora estimada\n\nVisitas solo con hora agendada.";
+        "📅 Si deseas visitarnos, indícanos por favor:\n" +
+        "• Nombre y apellido\n" +
+        "• Hora en que asistirías\n\n" +
+        "Así confirmamos disponibilidad por este medio.";
     }
 
     // SALUDO
@@ -274,8 +362,7 @@ app.post("/webhook", async (req, res) => {
       text.includes("buenas tardes") ||
       text.includes("buenas noches")
     ) {
-      reply =
-        "Hola 👋 Bienvenido a Joyas Plata RM 💎\n\nPor este medio trabajamos solo con lotes listos disponibles.\n\nEscribe:\n• catálogo\n• precios\n• dirección\n• horario\n• envíos";
+      reply = WELCOME_MESSAGE;
     }
 
     // Evita repetir exactamente la misma respuesta dentro de 10 minutos
