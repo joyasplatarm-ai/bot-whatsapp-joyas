@@ -1,3 +1,4 @@
+const { google } = require("googleapis");
 const express = require("express");
 
 const app = express();
@@ -5,7 +6,18 @@ app.use(express.json());
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const DRIVE_FOLDER_ID =
+  process.env.GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID;
 
+const googleAuth = new google.auth.GoogleAuth({
+  keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+});
+
+const drive = google.drive({
+  version: "v3",
+  auth: googleAuth
+});
 // Chats en modo humano con vencimiento
 const humanModeUntil = new Map();
 
@@ -33,7 +45,193 @@ const WELCOME_MESSAGE =
 app.get("/", (req, res) => {
   res.send("Bot activo");
 });
+async function enviarTextoWhatsApp(phoneNumberId, to, text) {
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "text",
+        text: {
+          body: text
+        }
+      })
+    }
+  );
 
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Error enviando texto WhatsApp: ${error}`);
+  }
+}
+
+async function obtenerImagenesCatalogoDrive() {
+  const response = await drive.files.list({
+    q: `'${DRIVE_FOLDER_ID}' in parents and trashed = false`,
+    fields: "files(id,name,mimeType)",
+    pageSize: 1000,
+    orderBy: "name"
+  });
+
+  return (response.data.files || []).filter(file =>
+    ["image/jpeg", "image/png"].includes(file.mimeType)
+  );
+}
+
+async function subirImagenDriveAWhatsApp(file, phoneNumberId) {
+  const response = await drive.files.get(
+    {
+      fileId: file.id,
+      alt: "media"
+    },
+    {
+      responseType: "arraybuffer"
+    }
+  );
+
+  const buffer = Buffer.from(response.data);
+
+  const form = new FormData();
+
+  form.append("messaging_product", "whatsapp");
+
+  form.append(
+    "file",
+    new Blob([buffer], {
+      type: file.mimeType
+    }),
+    file.name
+  );
+
+  const uploadResponse = await fetch(
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`
+      },
+      body: form
+    }
+  );
+
+  const data = await uploadResponse.json();
+
+  if (!uploadResponse.ok || !data.id) {
+    throw new Error(
+      `Error subiendo imagen a WhatsApp: ${JSON.stringify(data)}`
+    );
+  }
+
+  return data.id;
+}
+
+async function enviarImagenWhatsApp(phoneNumberId, to, mediaId) {
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "image",
+        image: {
+          id: mediaId
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Error enviando imagen: ${error}`);
+  }
+}
+
+function esperar(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function enviarCatalogoCompleto(phoneNumberId, to) {
+  try {
+    console.log(`Iniciando catálogo para ${to}`);
+
+    await enviarTextoWhatsApp(
+      phoneNumberId,
+      to,
+      "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
+    );
+
+    const imagenes = await obtenerImagenesCatalogoDrive();
+
+    console.log(
+      `Se encontraron ${imagenes.length} imágenes en Catálogo completo`
+    );
+
+    if (imagenes.length === 0) {
+      await enviarTextoWhatsApp(
+        phoneNumberId,
+        to,
+        "En este momento no tengo imágenes disponibles en el catálogo 💎."
+      );
+      return;
+    }
+
+    for (const imagen of imagenes) {
+      try {
+        const mediaId = await subirImagenDriveAWhatsApp(
+          imagen,
+          phoneNumberId
+        );
+
+        await enviarImagenWhatsApp(
+          phoneNumberId,
+          to,
+          mediaId
+        );
+
+        // Pequeña pausa entre imágenes
+        await esperar(500);
+
+      } catch (error) {
+        console.error(
+          `Error procesando ${imagen.name}:`,
+          error.message
+        );
+      }
+    }
+
+    await enviarTextoWhatsApp(
+      phoneNumberId,
+      to,
+      "¡Listo! 💎 Ese es nuestro catálogo disponible actualmente. Si te gustó algún modelo o lote, envíame la foto y te ayudo con la compra."
+    );
+
+    console.log(`Catálogo terminado para ${to}`);
+
+  } catch (error) {
+    console.error("ERROR EN CATÁLOGO DRIVE:", error);
+
+    try {
+      await enviarTextoWhatsApp(
+        phoneNumberId,
+        to,
+        "Estoy teniendo un inconveniente para cargar el catálogo en este momento 💎. Intenta nuevamente en unos minutos."
+      );
+    } catch {}
+  }
+}
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -76,7 +274,28 @@ app.post("/webhook", async (req, res) => {
     if (humanUntil && now >= humanUntil) {
       humanModeUntil.delete(from);
     }
+const esSolicitudCatalogo =
+  text.includes("catalogo") ||
+  text.includes("catálogo") ||
+  text.includes("fotos") ||
+  text.includes("modelos") ||
+  text.includes("muestrame") ||
+  text.includes("muéstrame") ||
+  text.includes("quiero ver") ||
+  text.includes("quiero catálogo") ||
+  text.includes("quiero catalogo") ||
+  text.includes("ver todo");
 
+if (esSolicitudCatalogo) {
+  res.sendStatus(200);
+
+  enviarCatalogoCompleto(phoneNumberId, from)
+    .catch(error => {
+      console.error("ERROR EN ENVÍO DE CATÁLOGO:", error);
+    });
+
+  return;
+}
     let reply = WELCOME_MESSAGE;
 
     // HABLAR CON PERSONA / VENDEDOR
