@@ -10,7 +10,7 @@ const DRIVE_FOLDER_ID =
   process.env.GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID;
 
 const googleAuth = new google.auth.GoogleAuth({
-  keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  keyFile: "/etc/secrets/google-service-account.json",
   scopes: ["https://www.googleapis.com/auth/drive.readonly"]
 });
 
