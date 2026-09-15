@@ -41,10 +41,6 @@ const WELCOME_MESSAGE =
   "• horario\n" +
   "• envíos\n" +
   "• agendar visita";
-
-app.get("/", (req, res) => {
-  res.send("Bot activo");
-});
 async function enviarTextoWhatsApp(phoneNumberId, to, text) {
   const response = await fetch(
     `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
@@ -68,9 +64,180 @@ async function enviarTextoWhatsApp(phoneNumberId, to, text) {
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Error enviando texto WhatsApp: ${error}`);
+    throw new Error(`Error enviando texto: ${error}`);
   }
 }
+
+
+async function obtenerImagenesCatalogoDrive() {
+  const response = await drive.files.list({
+    q: `'${DRIVE_FOLDER_ID}' in parents and trashed = false`,
+    fields: "files(id,name,mimeType)",
+    pageSize: 1000,
+    orderBy: "name"
+  });
+
+  return (response.data.files || []).filter(file =>
+    file.mimeType === "image/jpeg" ||
+    file.mimeType === "image/png"
+  );
+}
+
+
+async function subirImagenDriveAWhatsApp(file, phoneNumberId) {
+  const driveResponse = await drive.files.get(
+    {
+      fileId: file.id,
+      alt: "media"
+    },
+    {
+      responseType: "arraybuffer"
+    }
+  );
+
+  const buffer = Buffer.from(driveResponse.data);
+
+  const form = new FormData();
+
+  form.append("messaging_product", "whatsapp");
+
+  form.append(
+    "file",
+    new Blob([buffer], {
+      type: file.mimeType
+    }),
+    file.name
+  );
+
+  const uploadResponse = await fetch(
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`
+      },
+      body: form
+    }
+  );
+
+  const data = await uploadResponse.json();
+
+  if (!uploadResponse.ok || !data.id) {
+    throw new Error(
+      `Error subiendo imagen: ${JSON.stringify(data)}`
+    );
+  }
+
+  return data.id;
+}
+
+
+async function enviarImagenWhatsApp(phoneNumberId, to, mediaId) {
+  const response = await fetch(
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "image",
+        image: {
+          id: mediaId
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Error enviando imagen: ${error}`);
+  }
+}
+
+
+function esperar(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
+async function enviarCatalogoCompleto(phoneNumberId, to) {
+  try {
+    console.log(`📂 Iniciando catálogo para ${to}`);
+
+    await enviarTextoWhatsApp(
+      phoneNumberId,
+      to,
+      "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
+    );
+
+    const imagenes = await obtenerImagenesCatalogoDrive();
+
+    console.log(`📸 Imágenes encontradas en Drive: ${imagenes.length}`);
+
+    if (imagenes.length === 0) {
+      await enviarTextoWhatsApp(
+        phoneNumberId,
+        to,
+        "En este momento no tengo imágenes disponibles en el catálogo 💎."
+      );
+      return;
+    }
+
+    for (const imagen of imagenes) {
+      try {
+        console.log(`Enviando: ${imagen.name}`);
+
+        const mediaId = await subirImagenDriveAWhatsApp(
+          imagen,
+          phoneNumberId
+        );
+
+        await enviarImagenWhatsApp(
+          phoneNumberId,
+          to,
+          mediaId
+        );
+
+        await esperar(700);
+
+      } catch (error) {
+        console.error(
+          `Error con ${imagen.name}:`,
+          error.message
+        );
+      }
+    }
+
+    await enviarTextoWhatsApp(
+      phoneNumberId,
+      to,
+      "¡Listo! 💎 Ese es nuestro catálogo disponible actualmente. Si te gustó algún modelo o lote, envíame la foto y te ayudo con la compra."
+    );
+
+    console.log(`✅ Catálogo terminado para ${to}`);
+
+  } catch (error) {
+    console.error("❌ ERROR CATÁLOGO DRIVE:", error);
+
+    try {
+      await enviarTextoWhatsApp(
+        phoneNumberId,
+        to,
+        "Estoy teniendo un inconveniente para cargar el catálogo en este momento 💎. Intenta nuevamente en unos minutos."
+      );
+    } catch (error2) {
+      console.error("Error enviando aviso:", error2);
+    }
+  }
+}
+app.get("/", (req, res) => {
+  res.send("Bot activo");
+});
 
 async function obtenerImagenesCatalogoDrive() {
   const response = await drive.files.list({
