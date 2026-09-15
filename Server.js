@@ -1,4 +1,6 @@
+
 const { google } = require("googleapis");
+const fs = require("fs");
 const express = require("express");
 
 const app = express();
@@ -9,8 +11,22 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const DRIVE_FOLDER_ID =
   process.env.GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID;
 
+const GOOGLE_CREDS_PATH = "/etc/secrets/google-service-account.json";
+
+console.log(
+  "GOOGLE CREDS EXISTS:",
+  fs.existsSync(GOOGLE_CREDS_PATH)
+);
+
+if (fs.existsSync(GOOGLE_CREDS_PATH)) {
+  console.log(
+    "GOOGLE CREDS SIZE:",
+    fs.statSync(GOOGLE_CREDS_PATH).size
+  );
+}
+
 const googleAuth = new google.auth.GoogleAuth({
-  keyFile: "/etc/secrets/google-service-account.json",
+  keyFile: GOOGLE_CREDS_PATH,
   scopes: ["https://www.googleapis.com/auth/drive.readonly"]
 });
 
