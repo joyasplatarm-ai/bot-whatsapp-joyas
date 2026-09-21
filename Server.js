@@ -46,7 +46,9 @@ const HUMAN_MODE_MS = HUMAN_MODE_MINUTES * 60 * 1000;
 
 // Tiempo para evitar repetir la misma respuesta: 10 minutos
 const REPLY_COOLDOWN_MS = 10 * 60 * 1000;
-
+// Mantener una conversación activa durante 24 horas
+const CONVERSATION_SESSION_MS = 24 * 60 * 60 * 1000;
+const activeConversations = new Map();
 const WELCOME_MESSAGE =
   "Hola 👋 gracias por comunicarte con *JOYAS PLATA RM* 💎\n\n" +
   "Contamos con oficina en Providencia y enviamos a todo Chile 🇨🇱\n\n" +
@@ -445,7 +447,11 @@ app.post("/webhook", async (req, res) => {
     const from = message.from;
     const text = (message.text?.body || "").toLowerCase().trim();
     const now = Date.now();
+const sessionUntil = activeConversations.get(from) || 0;
+const isNewConversation = now > sessionUntil;
 
+// Cada mensaje del cliente renueva la conversación por 24 horas
+activeConversations.set(from, now + CONVERSATION_SESSION_MS);
     // Si está en modo humano y aún no vence, el bot no responde
     const humanUntil = humanModeUntil.get(from);
     if (humanUntil && now < humanUntil) {
@@ -479,8 +485,9 @@ if (esSolicitudCatalogo) {
 
   return;
 }
-    let reply = WELCOME_MESSAGE;
-
+    let reply = isNewConversation
+  ? WELCOME_MESSAGE
+  : "Perfecto 💎, seguimos con tu atención. Cuéntame qué producto o lote deseas agregar.";
     // HABLAR CON PERSONA / VENDEDOR
     if (
       text.includes("hablar contigo") ||
