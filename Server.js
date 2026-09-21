@@ -52,15 +52,31 @@ const activeConversations = new Map();
 const sentCatalogMessages = new Map();
 const customerOrders = new Map();
 const WELCOME_MESSAGE =
-  "Hola 👋 gracias por comunicarte con *JOYAS PLATA RM* 💎\n\n" +
-  "Contamos con oficina en Providencia y enviamos a todo Chile 🇨🇱\n\n" +
-  "Por este medio trabajamos solo con *lotes listos disponibles*.\n\n" +
-  "Escribe:\n" +
-  "• catálogo\n" +
-  "• dirección\n" +
-  "• horario\n" +
-  "• envíos\n" +
-  "• agendar visita";
+  ¡Bienvenido! 👋 Gracias por comunicarte con
+JOYAS PLATA RM 💎
+Venta Mayorista de Joyas de Plata
+
+📦 Enviamos a todo Chile vía Chilexpress, Bluexpress y Starken.
+
+📍 OFICINA EN PROVIDENCIA
+Eliodoro Yáñez 1200
+Oficina 1004 – Piso 10
+
+🔹 ¿Buscas nuestro catálogo actualizado?
+Escribe CATÁLOGO y te lo enviamos de inmediato 📲
+
+🌐 También puedes comprar directamente en nuestra página web, desde 1 unidad:
+www.joyasplatarm.com
+
+🔹 ¿Quieres agendar una visita presencial?
+Indícanos:
+• Nombre
+• Día
+• Hora estimada
+
+💎 Compra mínima presencial por gramo: $30.000
+
+¡Te esperamos! ✨`;
 async function enviarTextoWhatsApp(phoneNumberId, to, text) {
   const response = await fetch(
     `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
