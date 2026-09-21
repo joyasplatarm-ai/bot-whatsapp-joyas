@@ -49,6 +49,8 @@ const REPLY_COOLDOWN_MS = 10 * 60 * 1000;
 // Mantener una conversación activa durante 24 horas
 const CONVERSATION_SESSION_MS = 24 * 60 * 60 * 1000;
 const activeConversations = new Map();
+const sentCatalogMessages = new Map();
+const customerOrders = new Map();
 const WELCOME_MESSAGE =
   "Hola 👋 gracias por comunicarte con *JOYAS PLATA RM* 💎\n\n" +
   "Contamos con oficina en Providencia y enviamos a todo Chile 🇨🇱\n\n" +
@@ -342,6 +344,8 @@ async function enviarImagenWhatsApp(phoneNumberId, to, mediaId) {
     const error = await response.text();
     throw new Error(`Error enviando imagen: ${error}`);
   }
+ const data = await response.json();
+return data?.messages?.[0]?.id || null; 
 }
 
 function esperar(ms) {
@@ -380,11 +384,20 @@ async function enviarCatalogoCompleto(phoneNumberId, to) {
           phoneNumberId
         );
 
-        await enviarImagenWhatsApp(
-          phoneNumberId,
-          to,
-          mediaId
-        );
+        const sentMessageId = await enviarImagenWhatsApp(
+  phoneNumberId,
+  to,
+  mediaId
+);
+
+if (sentMessageId) {
+  sentCatalogMessages.set(sentMessageId, {
+    to,
+    mediaId,
+    nombre: imagen.name,
+    timestamp: Date.now()
+  });
+}
 
         // Pequeña pausa entre imágenes
         await esperar(500);
@@ -446,6 +459,11 @@ app.post("/webhook", async (req, res) => {
 
     const from = message.from;
     const text = (message.text?.body || "").toLowerCase().trim();
+    const repliedMessageId = message.context?.id || null;
+
+const repliedCatalogItem = repliedMessageId
+  ? sentCatalogMessages.get(repliedMessageId)
+  : null;
     const now = Date.now();
 const sessionUntil = activeConversations.get(from) || 0;
 const isNewConversation = now > sessionUntil;
@@ -484,10 +502,47 @@ if (esSolicitudCatalogo) {
     });
 
   return;
+}const esSeleccionLote =
+  text.includes("quiero este") ||
+  text.includes("quiero ese") ||
+  text.includes("me interesa") ||
+  text.includes("agrégame") ||
+  text.includes("agregame") ||
+  text.includes("agrega este") ||
+  text.includes("agrega ese") ||
+  text.includes("quiero el lote") ||
+  text.includes("quiero este lote") ||
+  text.includes("me llevo");
+
+let reply;
+
+if (isNewConversation) {
+  reply = WELCOME_MESSAGE;
+} else if (esSeleccionLote && repliedCatalogItem) {
+  const pedido = customerOrders.get(from) || [];
+
+  const yaExiste = pedido.some(
+    item => item.mediaId === repliedCatalogItem.mediaId
+  );
+
+  if (!yaExiste) {
+    pedido.push({
+      nombre: repliedCatalogItem.nombre,
+      mediaId: repliedCatalogItem.mediaId,
+      seleccionadoEn: Date.now()
+    });
+
+    customerOrders.set(from, pedido);
+
+    reply = `Perfecto 💎, agregué ese lote a tu pedido. Llevas ${pedido.length} lote${pedido.length === 1 ? "" : "s"} seleccionado${pedido.length === 1 ? "" : "s"}. ¿Quieres agregar otro?`;
+  } else {
+    reply = `Ese lote ya estaba agregado a tu pedido 💎. Actualmente llevas ${pedido.length} lote${pedido.length === 1 ? "" : "s"}.`;
+  }
+} else if (esSeleccionLote && !repliedCatalogItem) {
+  reply = "Perfecto 💎. Para identificar exactamente cuál lote quieres, respóndeme directamente sobre la foto del lote.";
+} else {
+  reply = "Perfecto 💎, seguimos con tu atención. Cuéntame qué producto o lote deseas agregar.";
 }
-    let reply = isNewConversation
-  ? WELCOME_MESSAGE
-  : "Perfecto 💎, seguimos con tu atención. Cuéntame qué producto o lote deseas agregar.";
     // HABLAR CON PERSONA / VENDEDOR
     if (
       text.includes("hablar contigo") ||
