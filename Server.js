@@ -51,8 +51,7 @@ const CONVERSATION_SESSION_MS = 24 * 60 * 60 * 1000;
 const activeConversations = new Map();
 const sentCatalogMessages = new Map();
 const customerOrders = new Map();
-const WELCOME_MESSAGE =
-  ¡Bienvenido! 👋 Gracias por comunicarte con
+const WELCOME_MESSAGE = `¡Bienvenido! 👋 Gracias por comunicarte con
 JOYAS PLATA RM 💎
 Venta Mayorista de Joyas de Plata
 
@@ -60,7 +59,7 @@ Venta Mayorista de Joyas de Plata
 
 📍 OFICINA EN PROVIDENCIA
 Eliodoro Yáñez 1200
-Oficina 1004 – Piso 10
+OFICINA 1004 – Piso 10
 
 🔹 ¿Buscas nuestro catálogo actualizado?
 Escribe CATÁLOGO y te lo enviamos de inmediato 📲
