@@ -865,17 +865,23 @@ if (isNewConversation) {
     }
 
     // Evita repetir exactamente la misma respuesta dentro de 10 minutos
-    const previous = lastReplies.get(from);
-    if (
-      previous &&
-      previous.reply === reply &&
-      now - previous.timestamp < REPLY_COOLDOWN_MS
-    ) {
-      console.log(`Respuesta repetida evitada para ${from}`);
-      return res.sendStatus(200);
-    }
+const previous = lastReplies.get(from);
 
-    const response = await fetch(
+if (
+  previous &&
+  previous.reply === reply &&
+  now - previous.timestamp < REPLY_COOLDOWN_MS
+) {
+  console.log(`Respuesta repetida evitada para ${from}`);
+  return res.sendStatus(200);
+}
+
+if (!reply) {
+  console.log("Sin respuesta automática para este mensaje");
+  return res.sendStatus(200);
+}
+
+const response = await fetch(
       `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
       {
         method: "POST",
