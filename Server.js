@@ -461,6 +461,24 @@ app.get("/webhook", (req, res) => {
 app.post("/webhook", async (req, res) => {
   try {
     const body = req.body;
+    // ===================================================
+// DETECTAR AUDIO ENVIADO MANUALMENTE DESDE WHATSAPP
+// ===================================================
+
+const echoChange = req.body?.entry?.[0]?.changes?.[0];
+const echoValue = echoChange?.value;
+
+if (echoChange?.field === "smb_message_echoes") {
+  const echo = echoValue?.message_echoes?.[0];
+
+  if (echo?.type === "audio" && echo?.to) {
+    console.log("🎙️ Audio enviado por humano a:", echo.to);
+
+    pausarBotPorHumano(echo.to);
+
+    return res.sendStatus(200);
+  }
+}
     const value = body.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
     const phoneNumberId = value?.metadata?.phone_number_id;
