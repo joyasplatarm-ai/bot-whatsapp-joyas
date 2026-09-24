@@ -204,7 +204,21 @@ function esperar(ms) {
 async function enviarCatalogoCompleto(phoneNumberId, to) {
   try {
     console.log(`📂 Iniciando catálogo para ${to}`);
+async function enviarCatalogoCompleto(phoneNumberId, to) {
+  try {
+    console.log(`📂 Iniciando catálogo para ${to}`);
 
+    // 🛑 NO iniciar catálogo si un humano tomó la conversación
+    if (!botPuedeResponder(to)) {
+      console.log(`🛑 Catálogo no iniciado: conversación tomada por humano ${to}`);
+      return;
+    }
+
+    await enviarTextoWhatsApp(
+      phoneNumberId,
+      to,
+      "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
+    );
     await enviarTextoWhatsApp(
       phoneNumberId,
       to,
