@@ -466,12 +466,32 @@ app.post("/webhook", async (req, res) => {
     const phoneNumberId = value?.metadata?.phone_number_id;
 
     if (!message || !phoneNumberId) {
-      return res.sendStatus(200);
-    }
+  return res.sendStatus(200);
+}
 
-    if (message.type !== "text") {
-      return res.sendStatus(200);
-    }
+// Ignorar mensajes antiguos/reintentados por Meta
+const messageTimestampMs =
+  Number(message.timestamp || 0) * 1000;
+
+const MAX_MESSAGE_AGE_MS = 2 * 60 * 1000; // 2 minutos
+
+if (
+  messageTimestampMs &&
+  Date.now() - messageTimestampMs > MAX_MESSAGE_AGE_MS
+) {
+  console.log(
+    "Mensaje antiguo ignorado:",
+    message.id,
+    new Date(messageTimestampMs).toISOString()
+  );
+
+  return res.sendStatus(200);
+}
+
+if (message.type !== "text") {
+  return res.sendStatus(200);
+}
+
 const messageId = message.id;
 
 if (!messageId) {
@@ -880,7 +900,34 @@ if (!reply) {
   console.log("Sin respuesta automática para este mensaje");
   return res.sendStatus(200);
 }
+if (!message || !phoneNumberId) {
+  return res.sendStatus(200);
+}
 
+// Ignorar mensajes antiguos/reintentados por Meta
+const messageTimestampMs =
+  Number(message.timestamp || 0) * 1000;
+
+const MAX_MESSAGE_AGE_MS = 2 * 60 * 1000; // 2 minutos
+
+if (
+  messageTimestampMs &&
+  Date.now() - messageTimestampMs > MAX_MESSAGE_AGE_MS
+) {
+  console.log(
+    "Mensaje antiguo ignorado:",
+    message.id,
+    new Date(messageTimestampMs).toISOString()
+  );
+
+  return res.sendStatus(200);
+}
+
+if (message.type !== "text") {
+  return res.sendStatus(200);
+}
+
+const messageId = message.id;
 const response = await fetch(
       `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
       {
