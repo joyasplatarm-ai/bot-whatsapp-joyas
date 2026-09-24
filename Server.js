@@ -913,7 +913,11 @@ if (
   console.log(`Respuesta repetida evitada para ${from}`);
   return res.sendStatus(200);
 }
-
+// Si un trabajador tomó la conversación, la IA no responde
+if (!botPuedeResponder(from)) {
+  console.log(`👤 Conversación tomada por humano: ${from}`);
+  return res.sendStatus(200);
+}
 if (!reply) {
   console.log("Sin respuesta automática para este mensaje");
   return res.sendStatus(200);
