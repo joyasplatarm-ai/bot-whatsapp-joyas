@@ -51,6 +51,7 @@ const CONVERSATION_SESSION_MS = 24 * 60 * 60 * 1000;
 const activeConversations = new Map();
 const sentCatalogMessages = new Map();
 const customerOrders = new Map();
+const processedMessages = new Map();
 const WELCOME_MESSAGE = `¡Bienvenido! 👋 Gracias por comunicarte con
 JOYAS PLATA RM 💎
 Venta Mayorista de Joyas de Plata
@@ -471,7 +472,26 @@ app.post("/webhook", async (req, res) => {
     if (message.type !== "text") {
       return res.sendStatus(200);
     }
+const messageId = message.id;
 
+if (!messageId) {
+  return res.sendStatus(200);
+}
+
+// Evita procesar dos veces el mismo mensaje de WhatsApp
+if (processedMessages.has(messageId)) {
+  console.log("Mensaje duplicado ignorado:", messageId);
+  return res.sendStatus(200);
+}
+
+processedMessages.set(messageId, Date.now());
+
+// Limpia registros antiguos después de 24 horas
+for (const [id, timestamp] of processedMessages) {
+  if (Date.now() - timestamp > 24 * 60 * 60 * 1000) {
+    processedMessages.delete(id);
+  }
+}
     const from = message.from;
     const text = (message.text?.body || "").toLowerCase().trim();
     const repliedMessageId = message.context?.id || null;
@@ -556,7 +576,7 @@ if (isNewConversation) {
 } else if (esSeleccionLote && !repliedCatalogItem) {
   reply = "Perfecto 💎. Para identificar exactamente cuál lote quieres, respóndeme directamente sobre la foto del lote.";
 } else {
-  reply = "Perfecto 💎, seguimos con tu atención. Cuéntame qué producto o lote deseas agregar.";
+  reply = null;
 }
     // HABLAR CON PERSONA / VENDEDOR
     if (
@@ -796,7 +816,7 @@ if (isNewConversation) {
         "💎 La compra a elección o personalizada se realiza solo presencial en oficina.\n\n" +
         "Por este medio trabajamos solo con lotes listos disponibles.\n\n" +
         "También puedes revisar productos unitarios en nuestra web:\n" +
-        "Www.joyasplatarm.com";
+        "Www.joyasplatarm.com"
     }
 
     // WEB / PÁGINA
