@@ -568,17 +568,41 @@ activeConversations.set(from, now + CONVERSATION_SESSION_MS);
     if (humanUntil && now >= humanUntil) {
       humanModeUntil.delete(from);
     }
-const esSolicitudCatalogo =
-  text.includes("catalogo") ||
-  text.includes("catálogo") ||
-  text.includes("fotos") ||
-  text.includes("modelos") ||
-  text.includes("muestrame") ||
-  text.includes("muéstrame") ||
-  text.includes("quiero ver") ||
-  text.includes("quiero catálogo") ||
-  text.includes("quiero catalogo") ||
-  text.includes("ver todo");
+function normalizarTexto(texto = "") {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function esSolicitudCatalogo(texto = "") {
+  const t = normalizarTexto(texto);
+
+  // Solicitudes claras de catálogo
+  const frasesExactas = [
+    "catalogo",
+    "quiero catalogo",
+    "quiero el catalogo",
+    "enviame catalogo",
+    "enviame el catalogo",
+    "mandame catalogo",
+    "mandame el catalogo",
+    "me envias el catalogo",
+    "me mandas el catalogo",
+    "tienes catalogo",
+    "tienen catalogo",
+    "quiero ver el catalogo",
+    "ver catalogo"
+  ];
+
+  if (frasesExactas.includes(t)) {
+    return true;
+  }
+
+  // Si no menciona CATÁLOGO expresamente, NO mandar catálogo.
+  return false;
+}
 
 if (esSolicitudCatalogo) {
   res.sendStatus(200);
