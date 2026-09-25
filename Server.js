@@ -200,10 +200,6 @@ function esperar(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-
-async function enviarCatalogoCompleto(phoneNumberId, to) {
-  try {
-    console.log(`📂 Iniciando catálogo para ${to}`);
 async function enviarCatalogoCompleto(phoneNumberId, to) {
   try {
     console.log(`📂 Iniciando catálogo para ${to}`);
@@ -213,18 +209,13 @@ async function enviarCatalogoCompleto(phoneNumberId, to) {
       console.log(`🛑 Catálogo no iniciado: conversación tomada por humano ${to}`);
       return;
     }
-
-    await enviarTextoWhatsApp(
+await enviarTextoWhatsApp(
+   
       phoneNumberId,
       to,
       "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
     );
-    await enviarTextoWhatsApp(
-      phoneNumberId,
-      to,
-      "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
-    );
-
+    
     const imagenes = await obtenerImagenesCatalogoDrive();
 
     console.log(`📸 Imágenes encontradas en Drive: ${imagenes.length}`);
