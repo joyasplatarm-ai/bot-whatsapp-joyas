@@ -7,6 +7,7 @@ app.use(express.json());
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+
 const DRIVE_FOLDER_ID =
   process.env.GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID;
 
@@ -27,7 +28,9 @@ if (fs.existsSync(GOOGLE_CREDS_PATH)) {
 
 const googleAuth = new google.auth.GoogleAuth({
   keyFile: GOOGLE_CREDS_PATH,
-  scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+  scopes: [
+    "https://www.googleapis.com/auth/drive.readonly"
+  ]
 });
 
 const drive = google.drive({
@@ -40,14 +43,34 @@ const drive = google.drive({
 // MEMORIA TEMPORAL DEL BOT
 // =====================================================
 
+// Conversaciones tomadas por humano
 const humanModeUntil = new Map();
+
+// Última respuesta enviada por número
 const lastReplies = new Map();
+
+// Sesiones activas
 const activeConversations = new Map();
+
+// Fotos enviadas por el bot desde Drive
+// messageId -> datos del lote
 const sentCatalogMessages = new Map();
+
+// Fotos que pertenecen al catálogo MÁS RECIENTE
+// número -> Set(messageIds)
+const currentCatalogMessageIds = new Map();
+
+// Lotes elegidos por cada cliente
 const customerOrders = new Map();
+
+// IDs de mensajes entrantes ya procesados
 const processedMessages = new Map();
 
+// Evita mandar dos catálogos en paralelo
+const catalogInProgress = new Set();
+
 const HUMAN_MODE_MINUTES = 30;
+
 const HUMAN_MODE_MS =
   HUMAN_MODE_MINUTES * 60 * 1000;
 
@@ -57,6 +80,8 @@ const REPLY_COOLDOWN_MS =
 const CONVERSATION_SESSION_MS =
   24 * 60 * 60 * 1000;
 
+// Si Render estuvo caído y Meta entrega después mensajes
+// antiguos, no queremos responderlos.
 const MAX_MESSAGE_AGE_MS =
   2 * 60 * 1000;
 
@@ -97,7 +122,6 @@ Indícanos:
 // =====================================================
 
 function pausarBotPorHumano(numero) {
-
   humanModeUntil.set(
     numero,
     Date.now() + HUMAN_MODE_MS
@@ -110,7 +134,6 @@ function pausarBotPorHumano(numero) {
 
 
 function botPuedeResponder(numero) {
-
   const hasta =
     humanModeUntil.get(numero);
 
@@ -119,9 +142,7 @@ function botPuedeResponder(numero) {
   }
 
   if (Date.now() >= hasta) {
-
     humanModeUntil.delete(numero);
-
     return true;
   }
 
@@ -130,7 +151,6 @@ function botPuedeResponder(numero) {
 
 
 function normalizarTexto(texto = "") {
-
   return texto
     .toLowerCase()
     .normalize("NFD")
@@ -142,7 +162,6 @@ function normalizarTexto(texto = "") {
 
 
 function contieneAlguna(texto, frases) {
-
   return frases.some(
     frase => texto.includes(frase)
   );
@@ -154,7 +173,6 @@ function contieneAlguna(texto, frases) {
 // =====================================================
 
 function esSolicitudCatalogo(texto = "") {
-
   let t =
     normalizarTexto(texto);
 
@@ -170,9 +188,7 @@ function esSolicitudCatalogo(texto = "") {
     ""
   ).trim();
 
-
   const frasesExactas = [
-
     "catalogo",
 
     "quiero catalogo",
@@ -221,7 +237,6 @@ function esSolicitudCatalogo(texto = "") {
     "muestrame el catalogo"
   ];
 
-
   return frasesExactas.includes(t);
 }
 
@@ -231,75 +246,74 @@ function esSolicitudCatalogo(texto = "") {
 // =====================================================
 
 function esSolicitudHumano(texto = "") {
-
   const t =
     normalizarTexto(texto);
 
-  return contieneAlguna(t, [
+  return contieneAlguna(
+    t,
+    [
+      "hablar contigo",
 
-    "hablar contigo",
+      "hablar con vendedor",
+      "hablar con un vendedor",
 
-    "hablar con vendedor",
-    "hablar con un vendedor",
+      "hablar con alguien",
+      "quiero hablar con alguien",
 
-    "hablar con alguien",
-    "quiero hablar con alguien",
+      "quiero hablar contigo",
 
-    "quiero hablar contigo",
+      "quiero hablar con vendedor",
+      "quiero hablar con un vendedor",
 
-    "quiero hablar con vendedor",
-    "quiero hablar con un vendedor",
+      "hablar con asesor",
+      "hablar con un asesor",
 
-    "hablar con asesor",
-    "hablar con un asesor",
+      "hablar con ejecutivo",
+      "hablar con un ejecutivo",
 
-    "hablar con ejecutivo",
-    "hablar con un ejecutivo",
+      "hablar con humano",
 
-    "hablar con humano",
-
-    "hablar con una persona"
-  ]);
+      "hablar con una persona"
+    ]
+  );
 }
 
 
 // =====================================================
-// DETECTAR PAGO / COMPROBANTE ENVIADO
+// DETECTAR PAGO / COMPROBANTE
 // =====================================================
 
 function esAvisoPagoRealizado(texto = "") {
-
   const t =
     normalizarTexto(texto);
 
-  return contieneAlguna(t, [
+  return contieneAlguna(
+    t,
+    [
+      "te envio comprobante",
+      "te envio el comprobante",
 
-    "te envio comprobante",
-    "te envio el comprobante",
+      "envio comprobante",
+      "envio el comprobante",
 
-    "envio comprobante",
-    "envio el comprobante",
+      "adjunto comprobante",
+      "adjunto el comprobante",
 
-    "adjunto comprobante",
-    "adjunto el comprobante",
+      "ya pague",
+      "ya transferi",
 
-    "ya pague",
+      "pago realizado",
 
-    "ya transferi",
+      "transferencia realizada",
 
-    "pago realizado",
-
-    "transferencia realizada",
-
-    "listo pague",
-
-    "listo transferi"
-  ]);
+      "listo pague",
+      "listo transferi"
+    ]
+  );
 }
 
 
 function esperar(ms) {
-
   return new Promise(
     resolve => setTimeout(resolve, ms)
   );
@@ -315,7 +329,6 @@ async function enviarTextoWhatsApp(
   to,
   text
 ) {
-
   const response =
     await fetch(
       `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
@@ -331,7 +344,6 @@ async function enviarTextoWhatsApp(
         },
 
         body: JSON.stringify({
-
           messaging_product:
             "whatsapp",
 
@@ -346,14 +358,11 @@ async function enviarTextoWhatsApp(
           text: {
             body: text
           }
-
         })
       }
     );
 
-
   if (!response.ok) {
-
     const error =
       await response.text();
 
@@ -361,7 +370,6 @@ async function enviarTextoWhatsApp(
       `Error enviando texto: ${error}`
     );
   }
-
 
   return response.json();
 }
@@ -376,16 +384,13 @@ async function enviarImagenWhatsApp(
   to,
   mediaId
 ) {
-
   const response =
     await fetch(
       `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
       {
-
         method: "POST",
 
         headers: {
-
           Authorization:
             `Bearer ${WHATSAPP_TOKEN}`,
 
@@ -394,7 +399,6 @@ async function enviarImagenWhatsApp(
         },
 
         body: JSON.stringify({
-
           messaging_product:
             "whatsapp",
 
@@ -409,14 +413,11 @@ async function enviarImagenWhatsApp(
           image: {
             id: mediaId
           }
-
         })
       }
     );
 
-
   if (!response.ok) {
-
     const error =
       await response.text();
 
@@ -425,10 +426,8 @@ async function enviarImagenWhatsApp(
     );
   }
 
-
   const data =
     await response.json();
-
 
   return (
     data?.messages?.[0]?.id ||
@@ -442,10 +441,8 @@ async function enviarImagenWhatsApp(
 // =====================================================
 
 async function obtenerImagenesCatalogoDrive() {
-
   const response =
     await drive.files.list({
-
       q:
         `'${DRIVE_FOLDER_ID}' in parents and trashed = false`,
 
@@ -458,7 +455,6 @@ async function obtenerImagenesCatalogoDrive() {
       orderBy:
         "name"
     });
-
 
   return (
     response.data.files || []
@@ -480,41 +476,33 @@ async function subirImagenDriveAWhatsApp(
   file,
   phoneNumberId
 ) {
-
   const response =
     await drive.files.get(
       {
-
         fileId:
           file.id,
 
         alt:
           "media"
       },
-
       {
         responseType:
           "arraybuffer"
       }
     );
 
-
   const buffer =
     Buffer.from(response.data);
 
-
   const form =
     new FormData();
-
 
   form.append(
     "messaging_product",
     "whatsapp"
   );
 
-
   form.append(
-
     "file",
 
     new Blob(
@@ -528,17 +516,14 @@ async function subirImagenDriveAWhatsApp(
     file.name
   );
 
-
   const uploadResponse =
     await fetch(
       `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
       {
-
         method:
           "POST",
 
         headers: {
-
           Authorization:
             `Bearer ${WHATSAPP_TOKEN}`
         },
@@ -548,21 +533,17 @@ async function subirImagenDriveAWhatsApp(
       }
     );
 
-
   const data =
     await uploadResponse.json();
-
 
   if (
     !uploadResponse.ok ||
     !data.id
   ) {
-
     throw new Error(
       `Error subiendo imagen a WhatsApp: ${JSON.stringify(data)}`
     );
   }
-
 
   return data.id;
 }
@@ -576,13 +557,10 @@ async function enviarCatalogoCompleto(
   phoneNumberId,
   to
 ) {
-
   try {
-
     // Si un humano tomó el chat,
-    // NO comenzar catálogo.
+    // no comenzar catálogo.
     if (!botPuedeResponder(to)) {
-
       console.log(
         `🛑 Catálogo no iniciado: conversación tomada por humano ${to}`
       );
@@ -590,41 +568,36 @@ async function enviarCatalogoCompleto(
       return;
     }
 
-
     console.log(
       `📂 Iniciando catálogo para ${to}`
     );
 
+    // IMPORTANTE:
+    // cada catálogo nuevo invalida las fotos
+    // anteriores para selección automática.
+    currentCatalogMessageIds.set(
+      to,
+      new Set()
+    );
 
     await enviarTextoWhatsApp(
-
       phoneNumberId,
-
       to,
-
       "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
     );
 
-
     const imagenes =
       await obtenerImagenesCatalogoDrive();
-
 
     console.log(
       `📸 Imágenes encontradas en Drive: ${imagenes.length}`
     );
 
-
     if (imagenes.length === 0) {
-
       if (botPuedeResponder(to)) {
-
         await enviarTextoWhatsApp(
-
           phoneNumberId,
-
           to,
-
           "En este momento no tengo imágenes disponibles en el catálogo 💎."
         );
       }
@@ -632,14 +605,10 @@ async function enviarCatalogoCompleto(
       return;
     }
 
-
     for (const imagen of imagenes) {
-
       // Si durante el catálogo
-      // interviene un humano,
-      // detener inmediatamente.
+      // interviene un humano, detener.
       if (!botPuedeResponder(to)) {
-
         console.log(
           `🛑 Catálogo detenido por intervención humana: ${to}`
         );
@@ -647,20 +616,16 @@ async function enviarCatalogoCompleto(
         return;
       }
 
-
       try {
-
         console.log(
-          `Enviando: ${imagen.name}`
+          `📤 Enviando: ${imagen.name}`
         );
-
 
         const mediaId =
           await subirImagenDriveAWhatsApp(
             imagen,
             phoneNumberId
           );
-
 
         const sentMessageId =
           await enviarImagenWhatsApp(
@@ -669,15 +634,10 @@ async function enviarCatalogoCompleto(
             mediaId
           );
 
-
-        // Guardamos SOLO imágenes
-        // enviadas desde Drive.
         if (sentMessageId) {
-
           sentCatalogMessages.set(
             sentMessageId,
             {
-
               to,
 
               mediaId,
@@ -685,68 +645,70 @@ async function enviarCatalogoCompleto(
               nombre:
                 imagen.name,
 
+              driveFileId:
+                imagen.id,
+
               timestamp:
                 Date.now()
             }
           );
-        }
 
+          // Solo las imágenes del catálogo
+          // más reciente son válidas.
+          const currentIds =
+            currentCatalogMessageIds.get(
+              to
+            );
+
+          if (currentIds) {
+            currentIds.add(
+              sentMessageId
+            );
+          }
+        }
 
         await esperar(700);
 
       } catch (error) {
-
         console.error(
-          `Error procesando ${imagen.name}:`,
+          `❌ Error procesando ${imagen.name}:`,
           error.message
         );
+
+        // Un error en una imagen NO cancela
+        // todo el catálogo.
       }
     }
-
 
     if (!botPuedeResponder(to)) {
       return;
     }
 
-
     await enviarTextoWhatsApp(
-
       phoneNumberId,
-
       to,
-
       "¡Listo! 💎 Ese es nuestro catálogo disponible actualmente. Si te gustó algún modelo o lote, respóndeme directamente sobre la foto y te ayudo con la compra."
     );
-
 
     console.log(
       `✅ Catálogo terminado para ${to}`
     );
 
-
   } catch (error) {
-
     console.error(
       "❌ ERROR CATÁLOGO DRIVE:",
       error
     );
 
-
     if (botPuedeResponder(to)) {
-
       try {
-
         await enviarTextoWhatsApp(
-
           phoneNumberId,
-
           to,
-
           "Estoy teniendo un inconveniente para cargar el catálogo en este momento 💎. Intenta nuevamente en unos minutos."
         );
 
       } catch (error2) {
-
         console.error(
           "Error enviando aviso:",
           error2
@@ -761,42 +723,42 @@ async function enviarCatalogoCompleto(
 // RUTA PRINCIPAL
 // =====================================================
 
-app.get("/", (req, res) => {
-
-  res.send("Bot activo");
-
-});
+app.get(
+  "/",
+  (req, res) => {
+    res.send("Bot activo");
+  }
+);
 
 
 // =====================================================
 // VERIFICACIÓN WEBHOOK META
 // =====================================================
 
-app.get("/webhook", (req, res) => {
+app.get(
+  "/webhook",
+  (req, res) => {
+    const mode =
+      req.query["hub.mode"];
 
-  const mode =
-    req.query["hub.mode"];
+    const token =
+      req.query["hub.verify_token"];
 
-  const token =
-    req.query["hub.verify_token"];
+    const challenge =
+      req.query["hub.challenge"];
 
-  const challenge =
-    req.query["hub.challenge"];
+    if (
+      mode === "subscribe" &&
+      token === VERIFY_TOKEN
+    ) {
+      return res
+        .status(200)
+        .send(challenge);
+    }
 
-
-  if (
-    mode === "subscribe" &&
-    token === VERIFY_TOKEN
-  ) {
-
-    return res
-      .status(200)
-      .send(challenge);
+    return res.sendStatus(403);
   }
-
-
-  return res.sendStatus(403);
-});
+);
 
 
 // =====================================================
@@ -806,15 +768,13 @@ app.get("/webhook", (req, res) => {
 app.post(
   "/webhook",
   async (req, res) => {
-
     try {
-
       const body =
         req.body;
 
 
       // =================================================
-      // AUDIO ENVIADO MANUALMENTE POR UN TRABAJADOR
+      // AUDIO ENVIADO MANUALMENTE POR TRABAJADOR
       // =================================================
 
       const echoChange =
@@ -823,32 +783,26 @@ app.post(
       const echoValue =
         echoChange?.value;
 
-
       if (
         echoChange?.field ===
         "smb_message_echoes"
       ) {
-
         const echo =
           echoValue
             ?.message_echoes?.[0];
-
 
         if (
           echo?.type === "audio" &&
           echo?.to
         ) {
-
           console.log(
             "🎙️ Audio enviado por humano a:",
             echo.to
           );
 
-
           pausarBotPorHumano(
             echo.to
           );
-
 
           return res.sendStatus(200);
         }
@@ -861,27 +815,23 @@ app.post(
 
       const value =
         body
-          .entry?.[0]
+          ?.entry?.[0]
           ?.changes?.[0]
           ?.value;
-
 
       const message =
         value
           ?.messages?.[0];
-
 
       const phoneNumberId =
         value
           ?.metadata
           ?.phone_number_id;
 
-
       if (
         !message ||
         !phoneNumberId
       ) {
-
         return res.sendStatus(200);
       }
 
@@ -895,62 +845,47 @@ app.post(
           message.timestamp || 0
         ) * 1000;
 
-
       if (
-
         messageTimestampMs &&
-
         Date.now() -
           messageTimestampMs >
           MAX_MESSAGE_AGE_MS
-
       ) {
-
         console.log(
-
-          "Mensaje antiguo ignorado:",
-
+          "⏱️ Mensaje antiguo ignorado:",
           message.id,
-
           new Date(
             messageTimestampMs
           ).toISOString()
         );
 
-
         return res.sendStatus(200);
       }
 
 
       // =================================================
-      // EVITAR PROCESAR DOS VECES
+      // EVITAR PROCESAR EL MISMO MENSAJE DOS VECES
       // =================================================
 
       const messageId =
         message.id;
 
-
       if (!messageId) {
-
         return res.sendStatus(200);
       }
-
 
       if (
         processedMessages.has(
           messageId
         )
       ) {
-
         console.log(
-          "Mensaje duplicado ignorado:",
+          "♻️ Mensaje duplicado ignorado:",
           messageId
         );
 
-
         return res.sendStatus(200);
       }
-
 
       processedMessages.set(
         messageId,
@@ -959,45 +894,49 @@ app.post(
 
 
       // =================================================
-      // LIMPIEZA DE MEMORIA DESPUÉS DE 24 HORAS
+      // LIMPIEZA DE MEMORIA
       // =================================================
 
       const limite24h =
         Date.now() -
         24 * 60 * 60 * 1000;
 
-
       for (
         const [id, timestamp]
         of processedMessages
       ) {
-
         if (
           timestamp < limite24h
         ) {
-
           processedMessages.delete(id);
         }
       }
-
 
       for (
         const [id, item]
         of sentCatalogMessages
       ) {
-
         if (
           item.timestamp < limite24h
         ) {
-
           sentCatalogMessages.delete(id);
+        }
+      }
+
+      for (
+        const [numero, item]
+        of lastReplies
+      ) {
+        if (
+          item.timestamp < limite24h
+        ) {
+          lastReplies.delete(numero);
         }
       }
 
 
       const from =
         message.from;
-
 
       const now =
         Date.now();
@@ -1007,11 +946,11 @@ app.post(
       // AUDIO / FOTO / DOCUMENTO DEL CLIENTE
       // =================================================
       //
-      // El bot NO intenta interpretar estos archivos.
-      // Se pausa para que lo revise una persona.
+      // No intentamos interpretar archivos del cliente.
+      // Se deriva a humano.
       //
-      // También sirve para que si envían un comprobante,
-      // el bot no siga respondiendo cosas automáticas.
+      // Esto evita que el bot responda tonteras después
+      // de un comprobante, audio o foto antigua.
       // =================================================
 
       if (
@@ -1023,16 +962,13 @@ app.post(
           message.type
         )
       ) {
-
         console.log(
           `📎 Mensaje ${message.type} recibido de ${from}. Se deriva a humano.`
         );
 
-
         pausarBotPorHumano(
           from
         );
-
 
         return res.sendStatus(200);
       }
@@ -1045,14 +981,12 @@ app.post(
       if (
         message.type !== "text"
       ) {
-
         return res.sendStatus(200);
       }
 
 
       const rawText =
         message.text?.body || "";
-
 
       const text =
         normalizarTexto(
@@ -1061,16 +995,25 @@ app.post(
 
 
       // =================================================
-      // SABER SI RESPONDIÓ SOBRE UNA FOTO DEL CATÁLOGO
+      // SABER SI RESPONDIÓ UNA FOTO DEL CATÁLOGO ACTUAL
       // =================================================
 
       const repliedMessageId =
         message.context?.id ||
         null;
 
+      const currentIds =
+        currentCatalogMessageIds.get(
+          from
+        );
 
       const repliedCatalogItem =
-        repliedMessageId
+        (
+          repliedMessageId &&
+          currentIds?.has(
+            repliedMessageId
+          )
+        )
           ? sentCatalogMessages.get(
               repliedMessageId
             )
@@ -1086,15 +1029,11 @@ app.post(
           from
         ) || 0;
 
-
       const isNewConversation =
         now > sessionUntil;
 
-
       activeConversations.set(
-
         from,
-
         now +
           CONVERSATION_SESSION_MS
       );
@@ -1107,20 +1046,16 @@ app.post(
       if (
         !botPuedeResponder(from)
       ) {
-
         const humanUntil =
           humanModeUntil.get(
             from
           );
 
-
         console.log(
-
-          `Modo humano activo para ${from} hasta ${new Date(
+          `👤 Modo humano activo para ${from} hasta ${new Date(
             humanUntil
           ).toISOString()}`
         );
-
 
         return res.sendStatus(200);
       }
@@ -1133,21 +1068,15 @@ app.post(
       if (
         esSolicitudHumano(text)
       ) {
-
         await enviarTextoWhatsApp(
-
           phoneNumberId,
-
           from,
-
           "Perfecto 💎 Te ayudaremos personalmente por este medio a la brevedad."
         );
-
 
         pausarBotPorHumano(
           from
         );
-
 
         return res.sendStatus(200);
       }
@@ -1160,21 +1089,15 @@ app.post(
       if (
         esAvisoPagoRealizado(text)
       ) {
-
         await enviarTextoWhatsApp(
-
           phoneNumberId,
-
           from,
-
           "¡Recibido! 💎 Un vendedor revisará tu pago y continuará contigo por este medio."
         );
-
 
         pausarBotPorHumano(
           from
         );
-
 
         return res.sendStatus(200);
       }
@@ -1183,40 +1106,50 @@ app.post(
       // =================================================
       // CATÁLOGO
       // =================================================
-      //
-      // AQUÍ ESTÁ CORREGIDO EL ERROR IMPORTANTE.
-      //
-      // Antes tenías:
-      //
-      // if (esSolicitudCatalogo)
-      //
-      // Eso era siempre verdadero.
-      //
-      // Ahora sí evaluamos el mensaje:
-      //
-      // esSolicitudCatalogo(text)
-      // =================================================
 
       if (
         esSolicitudCatalogo(text)
       ) {
+        // Si ya estamos enviando catálogo,
+        // NO empezar otro en paralelo.
+        if (
+          catalogInProgress.has(
+            from
+          )
+        ) {
+          console.log(
+            `📚 Catálogo ya en proceso para ${from}. Solicitud repetida ignorada.`
+          );
 
+          return res.sendStatus(200);
+        }
+
+        catalogInProgress.add(
+          from
+        );
+
+        // Respondemos a Meta inmediatamente.
         res.sendStatus(200);
-
 
         enviarCatalogoCompleto(
           phoneNumberId,
           from
-        ).catch(
-          error => {
-
-            console.error(
-              "ERROR EN ENVÍO DE CATÁLOGO:",
-              error
-            );
-          }
-        );
-
+        )
+          .catch(
+            error => {
+              console.error(
+                "ERROR EN ENVÍO DE CATÁLOGO:",
+                error
+              );
+            }
+          )
+          .finally(
+            () => {
+              catalogInProgress.delete(
+                from
+              );
+            }
+          );
 
         return;
       }
@@ -1230,24 +1163,22 @@ app.post(
         contieneAlguna(
           text,
           [
-
             "quiero este",
-
             "quiero ese",
 
             "me interesa",
 
             "agregame",
-
             "agrega este",
-
             "agrega ese",
 
             "quiero el lote",
-
             "quiero este lote",
 
-            "me llevo"
+            "me llevo",
+
+            "este tambien",
+            "ese tambien"
           ]
         );
 
@@ -1257,48 +1188,47 @@ app.post(
 
 
       // =================================================
-      // LOTE RESPONDIDO SOBRE FOTO DEL CATÁLOGO DRIVE
+      // LOTE RESPONDIDO SOBRE FOTO DEL CATÁLOGO ACTUAL
       // =================================================
 
       if (
         esSeleccionLote &&
         repliedCatalogItem
       ) {
-
         const pedido =
           customerOrders.get(
             from
           ) || [];
 
-
+        // Usamos nombre del archivo Drive,
+        // no mediaId, porque mediaId cambia
+        // cada vez que se sube a WhatsApp.
         const yaExiste =
           pedido.some(
             item =>
-              item.mediaId ===
-              repliedCatalogItem.mediaId
+              item.nombre ===
+              repliedCatalogItem.nombre
           );
 
-
         if (!yaExiste) {
-
           pedido.push({
-
             nombre:
               repliedCatalogItem.nombre,
 
             mediaId:
               repliedCatalogItem.mediaId,
 
+            driveFileId:
+              repliedCatalogItem.driveFileId,
+
             seleccionadoEn:
               Date.now()
           });
-
 
           customerOrders.set(
             from,
             pedido
           );
-
 
           reply =
             `Perfecto 💎, agregué ese lote a tu pedido. ` +
@@ -1307,9 +1237,7 @@ app.post(
             `${pedido.length === 1 ? "" : "s"}. ` +
             `¿Quieres agregar otro?`;
 
-
         } else {
-
           reply =
             `Ese lote ya estaba agregado a tu pedido 💎. ` +
             `Actualmente llevas ${pedido.length} lote` +
@@ -1322,9 +1250,8 @@ app.post(
         esSeleccionLote &&
         !repliedCatalogItem
       ) {
-
         reply =
-          "Perfecto 💎. Para identificar exactamente cuál lote quieres, respóndeme directamente sobre la foto del lote que te enviamos en este chat.";
+          "Perfecto 💎. Para identificar exactamente cuál lote quieres, respóndeme directamente sobre una de las fotos del catálogo actualizado que te enviamos en este chat.";
       }
 
 
@@ -1343,32 +1270,25 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "2 envios",
-
               "dos envios",
 
               "pagar 2 envios",
-
               "pagar dos envios",
 
               "mismo envio",
 
               "juntar envio",
-
               "juntar los envios",
 
               "agregar al envio",
-
               "sumar al envio",
 
               "mandar junto",
-
               "enviar junto"
             ]
           )
         ) {
-
           reply =
             "Si tu pedido todavía no ha sido despachado 💎, podemos revisar si es posible agregar el nuevo lote al mismo envío para evitar pagar dos veces. Envíame cuál quieres agregar y lo revisamos.";
         }
@@ -1382,20 +1302,14 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "direccion",
-
               "ubicacion",
-
               "donde estan",
-
               "donde se ubican",
-
               "donde quedan"
             ]
           )
         ) {
-
           reply =
             "📍 Estamos en Eliodoro Yáñez 1200, Providencia, oficina 1004, piso 10.";
         }
@@ -1409,20 +1323,14 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "horario",
-
               "atienden",
-
               "abren",
-
               "hora de atencion",
-
               "que hora atienden"
             ]
           )
         ) {
-
           reply =
             "🕒 Horarios de atención:\n" +
             "Lunes a viernes: 12:30 a 19:00\n" +
@@ -1438,24 +1346,18 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "medio kilo",
-
               "1/2 kilo",
-
               "medio kg",
 
               "precio medio kilo",
-
               "precios medio kilo",
 
               "valor medio kilo",
-
               "valores medio kilo"
             ]
           )
         ) {
-
           reply =
             "💎 Precios por medio kilo:\n\n" +
             "• Medio kilo cadenas y pulseras hombre: $250.000\n" +
@@ -1469,19 +1371,13 @@ app.post(
         // =================================================
 
         else if (
-
           contieneAlguna(
             text,
             [
-
               "por kilo",
-
               "precio kilo",
-
               "precios kilo",
-
               "valor kilo",
-
               "valores kilo"
             ]
           )
@@ -1493,9 +1389,7 @@ app.post(
           ||
 
           text === "kg"
-
         ) {
-
           reply =
             "💎 Precios por kilo:\n\n" +
             "• Pulseras y cadenas hombre: $440.000\n" +
@@ -1511,19 +1405,13 @@ app.post(
         // =================================================
 
         else if (
-
           contieneAlguna(
             text,
             [
-
               "por gramo",
-
               "valor del gramo",
-
               "precio del gramo",
-
               "precios por gramo",
-
               "valores por gramo"
             ]
           )
@@ -1531,9 +1419,7 @@ app.post(
           ||
 
           text === "gramo"
-
         ) {
-
           reply =
             "💎 Valores por gramo:\n\n" +
             "• Cadenas y pulseras hombre: $650 el gramo\n" +
@@ -1552,22 +1438,15 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "precio",
-
               "precios",
-
               "valor",
-
               "valores",
-
               "cuanto sale",
-
               "cuanto vale"
             ]
           )
         ) {
-
           reply =
             "💎 Trabajamos valores por gramo, medio kilo y kilo.\n\n" +
             "Si deseas un valor específico, puedes escribir por ejemplo:\n" +
@@ -1585,18 +1464,13 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "cuando mandan comprobante",
-
               "cuando envian comprobante",
-
               "cuando mandan los comprobantes",
-
               "cuando envian los comprobantes"
             ]
           )
         ) {
-
           reply =
             "📩 Los comprobantes se envían durante la noche del mismo día.";
         }
@@ -1610,22 +1484,15 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "a que hora envian",
-
               "a que hora despachan",
-
               "horario de envio",
-
               "hora envio",
-
               "hora despacho",
-
               "en que horario envian"
             ]
           )
         ) {
-
           reply =
             "🚚 Los envíos se realizan durante la tarde del día correspondiente.";
         }
@@ -1634,38 +1501,22 @@ app.post(
         // =================================================
         // DÍAS / EMPRESAS DE ENVÍO
         // =================================================
-        //
-        // IMPORTANTE:
-        //
-        // Ya NO responde solamente porque alguien
-        // escribió la palabra "envío".
-        //
-        // =================================================
 
         else if (
           contieneAlguna(
             text,
             [
-
               "que dias envian",
-
               "dias de envio",
-
               "cuando despachan",
-
               "por donde envian",
-
               "empresa de envio",
-
               "empresas de envio",
-
               "que empresa usan",
-
               "que empresas usan"
             ]
           )
         ) {
-
           reply =
             "📦 Días de envío:\n\n" +
 
@@ -1695,22 +1546,15 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "tipo de plata",
-
               "que plata trabajan",
-
               "trabajan plata",
-
               "son de plata",
-
               "de que material son",
-
               "material"
             ]
           )
         ) {
-
           reply =
             "💎 Trabajamos plata italiana y plata nacional. La plata italiana tiene un valor de $2.800 el gramo.";
         }
@@ -1724,24 +1568,16 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "personalizado",
-
               "personalizada",
-
               "a eleccion",
-
               "elegir",
-
               "escoger",
-
               "unitario",
-
               "unitarios"
             ]
           )
         ) {
-
           reply =
             "💎 La compra a elección o personalizada se realiza solo presencial en oficina.\n\n" +
 
@@ -1761,18 +1597,13 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "pagina web",
-
               "sitio web",
-
               "la web",
-
               "web"
             ]
           )
         ) {
-
           reply =
             "🌐 Puedes revisar productos unitarios a elección en nuestra web:\n" +
             "www.joyasplatarm.com";
@@ -1787,28 +1618,18 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "agendar",
-
               "agendo",
-
               "visita",
-
               "quiero ir",
-
               "presencial",
-
               "puedo ir ahora",
-
               "se puede ir ahora",
-
               "puedo pasar ahora",
-
               "puedo ir hoy"
             ]
           )
         ) {
-
           reply =
             "📅 Si deseas visitarnos, indícanos por favor:\n" +
 
@@ -1830,22 +1651,23 @@ app.post(
           contieneAlguna(
             text,
             [
-
               "hola",
-
               "buenas",
-
               "buenos dias",
-
               "buenas tardes",
-
               "buenas noches"
             ]
           )
         ) {
-
-          reply =
-            WELCOME_MESSAGE;
+          // No repetir el mensaje largo durante
+          // una conversación activa.
+          if (isNewConversation) {
+            reply =
+              WELCOME_MESSAGE;
+          } else {
+            reply =
+              "¡Hola! 💎 ¿En qué te puedo ayudar?";
+          }
         }
 
 
@@ -1856,7 +1678,6 @@ app.post(
         else if (
           isNewConversation
         ) {
-
           reply =
             WELCOME_MESSAGE;
         }
@@ -1864,15 +1685,13 @@ app.post(
 
 
       // =================================================
-      // SI NO ENTIENDE, NO INVENTAR NADA
+      // SI NO ENTIENDE, NO RESPONDER CUALQUIER COSA
       // =================================================
 
       if (!reply) {
-
         console.log(
-          "Sin respuesta automática para este mensaje"
+          `🤐 Sin respuesta automática para ${from}: "${rawText}"`
         );
-
 
         return res.sendStatus(200);
       }
@@ -1885,18 +1704,16 @@ app.post(
       if (
         !botPuedeResponder(from)
       ) {
-
         console.log(
           `👤 Conversación tomada por humano: ${from}`
         );
-
 
         return res.sendStatus(200);
       }
 
 
       // =================================================
-      // EVITAR RESPUESTA DUPLICADA
+      // EVITAR REPETIR EXACTAMENTE LA MISMA RESPUESTA
       // =================================================
 
       const previous =
@@ -1904,9 +1721,7 @@ app.post(
           from
         );
 
-
       if (
-
         previous &&
 
         previous.reply === reply &&
@@ -1914,13 +1729,10 @@ app.post(
         now -
           previous.timestamp <
           REPLY_COOLDOWN_MS
-
       ) {
-
         console.log(
-          `Respuesta repetida evitada para ${from}`
+          `♻️ Respuesta repetida evitada para ${from}`
         );
-
 
         return res.sendStatus(200);
       }
@@ -1931,19 +1743,14 @@ app.post(
       // =================================================
 
       await enviarTextoWhatsApp(
-
         phoneNumberId,
-
         from,
-
         reply
       );
-
 
       lastReplies.set(
         from,
         {
-
           reply,
 
           timestamp:
@@ -1951,19 +1758,18 @@ app.post(
         }
       );
 
-
       return res.sendStatus(200);
 
 
     } catch (error) {
-
       console.error(
-        "ERROR EN WEBHOOK:",
+        "❌ ERROR EN WEBHOOK:",
         error
       );
 
-
-      return res.sendStatus(500);
+      // Respondemos 200 para evitar que Meta
+      // reintente el mismo webhook una y otra vez.
+      return res.sendStatus(200);
     }
   }
 );
@@ -1976,13 +1782,11 @@ app.post(
 const PORT =
   process.env.PORT || 3000;
 
-
 app.listen(
   PORT,
   () => {
-
     console.log(
-      `Servidor corriendo en puerto ${PORT}`
+      `✅ Servidor corriendo en puerto ${PORT}`
     );
   }
 );
