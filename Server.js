@@ -66,8 +66,14 @@ const customerOrders = new Map();
 // IDs de mensajes entrantes ya procesados
 const processedMessages = new Map();
 
-// Evita mandar dos catálogos en paralelo
-const catalogInProgress = new Set();
+// Catálogos actualmente en proceso
+// numero -> hora en que comenzó
+const catalogInProgress = new Map();
+
+
+// =====================================================
+// TIEMPOS
+// =====================================================
 
 const HUMAN_MODE_MINUTES = 30;
 
@@ -80,10 +86,15 @@ const REPLY_COOLDOWN_MS =
 const CONVERSATION_SESSION_MS =
   24 * 60 * 60 * 1000;
 
-// Si Render estuvo caído y Meta entrega después mensajes
-// antiguos, no queremos responderlos.
+// Si Render estuvo caído y Meta entrega mensajes
+// antiguos después, no responderlos.
 const MAX_MESSAGE_AGE_MS =
   2 * 60 * 1000;
+
+// Si un catálogo queda pegado por un error,
+// después de 15 minutos liberamos el bloqueo.
+const CATALOG_LOCK_MAX_MS =
+  15 * 60 * 1000;
 
 
 // =====================================================
@@ -122,13 +133,22 @@ Indícanos:
 // =====================================================
 
 function pausarBotPorHumano(numero) {
+  const hasta =
+    Date.now() + HUMAN_MODE_MS;
+
   humanModeUntil.set(
     numero,
-    Date.now() + HUMAN_MODE_MS
+    hasta
   );
 
   console.log(
     `👤 Bot pausado por intervención humana: ${numero}`
+  );
+
+  console.log(
+    `⏰ Bot volverá automáticamente a las: ${new Date(
+      hasta
+    ).toISOString()}`
   );
 }
 
@@ -143,6 +163,11 @@ function botPuedeResponder(numero) {
 
   if (Date.now() >= hasta) {
     humanModeUntil.delete(numero);
+
+    console.log(
+      `🤖 Modo humano terminado automáticamente para ${numero}`
+    );
+
     return true;
   }
 
@@ -164,6 +189,13 @@ function normalizarTexto(texto = "") {
 function contieneAlguna(texto, frases) {
   return frases.some(
     frase => texto.includes(frase)
+  );
+}
+
+
+function esperar(ms) {
+  return new Promise(
+    resolve => setTimeout(resolve, ms)
   );
 }
 
@@ -313,13 +345,6 @@ function esAvisoPagoRealizado(texto = "") {
 }
 
 
-function esperar(ms) {
-  return new Promise(
-    resolve => setTimeout(resolve, ms)
-  );
-}
-
-
 // =====================================================
 // ENVIAR TEXTO POR WHATSAPP
 // =====================================================
@@ -441,6 +466,16 @@ async function enviarImagenWhatsApp(
 // =====================================================
 
 async function obtenerImagenesCatalogoDrive() {
+  if (!DRIVE_FOLDER_ID) {
+    throw new Error(
+      "Falta la variable GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID"
+    );
+  }
+
+  console.log(
+    `📂 Buscando imágenes en carpeta Drive: ${DRIVE_FOLDER_ID}`
+  );
+
   const response =
     await drive.files.list({
       q:
@@ -456,15 +491,27 @@ async function obtenerImagenesCatalogoDrive() {
         "name"
     });
 
-  return (
-    response.data.files || []
-  ).filter(
-    file =>
-      [
-        "image/jpeg",
-        "image/png"
-      ].includes(file.mimeType)
+  const archivos =
+    response.data.files || [];
+
+  const imagenes =
+    archivos.filter(
+      file =>
+        [
+          "image/jpeg",
+          "image/png"
+        ].includes(file.mimeType)
+    );
+
+  console.log(
+    `📸 Total archivos encontrados: ${archivos.length}`
   );
+
+  console.log(
+    `🖼️ Total imágenes válidas: ${imagenes.length}`
+  );
+
+  return imagenes;
 }
 
 
@@ -558,8 +605,9 @@ async function enviarCatalogoCompleto(
   to
 ) {
   try {
-    // Si un humano tomó el chat,
-    // no comenzar catálogo.
+
+    // Comprobar nuevamente que el bot
+    // tenga permiso para contestar.
     if (!botPuedeResponder(to)) {
       console.log(
         `🛑 Catálogo no iniciado: conversación tomada por humano ${to}`
@@ -569,16 +617,23 @@ async function enviarCatalogoCompleto(
     }
 
     console.log(
-      `📂 Iniciando catálogo para ${to}`
+      `📂 INICIANDO CATÁLOGO PARA ${to}`
     );
 
-    // IMPORTANTE:
-    // cada catálogo nuevo invalida las fotos
-    // anteriores para selección automática.
+
+    // =================================================
+    // INVALIDAR FOTOS DEL CATÁLOGO ANTERIOR
+    // =================================================
+
     currentCatalogMessageIds.set(
       to,
       new Set()
     );
+
+
+    // =================================================
+    // MENSAJE INICIAL
+    // =================================================
 
     await enviarTextoWhatsApp(
       phoneNumberId,
@@ -586,12 +641,22 @@ async function enviarCatalogoCompleto(
       "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
     );
 
+
+    // =================================================
+    // OBTENER FOTOS
+    // =================================================
+
     const imagenes =
       await obtenerImagenesCatalogoDrive();
 
     console.log(
-      `📸 Imágenes encontradas en Drive: ${imagenes.length}`
+      `📸 Imágenes encontradas en Drive para ${to}: ${imagenes.length}`
     );
+
+
+    // =================================================
+    // SI DRIVE ESTÁ VACÍO
+    // =================================================
 
     if (imagenes.length === 0) {
       if (botPuedeResponder(to)) {
@@ -605,9 +670,15 @@ async function enviarCatalogoCompleto(
       return;
     }
 
+
+    // =================================================
+    // ENVIAR IMÁGENES UNA POR UNA
+    // =================================================
+
     for (const imagen of imagenes) {
-      // Si durante el catálogo
-      // interviene un humano, detener.
+
+      // Comprobar antes de cada foto
+      // si intervino una persona.
       if (!botPuedeResponder(to)) {
         console.log(
           `🛑 Catálogo detenido por intervención humana: ${to}`
@@ -618,7 +689,7 @@ async function enviarCatalogoCompleto(
 
       try {
         console.log(
-          `📤 Enviando: ${imagen.name}`
+          `📤 Enviando imagen a ${to}: ${imagen.name}`
         );
 
         const mediaId =
@@ -653,8 +724,6 @@ async function enviarCatalogoCompleto(
             }
           );
 
-          // Solo las imágenes del catálogo
-          // más reciente son válidas.
           const currentIds =
             currentCatalogMessageIds.get(
               to
@@ -665,8 +734,13 @@ async function enviarCatalogoCompleto(
               sentMessageId
             );
           }
+
+          console.log(
+            `✅ Imagen enviada: ${imagen.name}`
+          );
         }
 
+        // Pequeña pausa entre imágenes
         await esperar(700);
 
       } catch (error) {
@@ -675,12 +749,21 @@ async function enviarCatalogoCompleto(
           error.message
         );
 
-        // Un error en una imagen NO cancela
+        // Una imagen con error NO cancela
         // todo el catálogo.
       }
     }
 
+
+    // =================================================
+    // MENSAJE FINAL
+    // =================================================
+
     if (!botPuedeResponder(to)) {
+      console.log(
+        `🛑 No se envía mensaje final porque un humano tomó ${to}`
+      );
+
       return;
     }
 
@@ -691,12 +774,12 @@ async function enviarCatalogoCompleto(
     );
 
     console.log(
-      `✅ Catálogo terminado para ${to}`
+      `✅ CATÁLOGO TERMINADO PARA ${to}`
     );
 
   } catch (error) {
     console.error(
-      "❌ ERROR CATÁLOGO DRIVE:",
+      `❌ ERROR CATÁLOGO DRIVE PARA ${to}:`,
       error
     );
 
@@ -710,7 +793,7 @@ async function enviarCatalogoCompleto(
 
       } catch (error2) {
         console.error(
-          "Error enviando aviso:",
+          "❌ Error enviando aviso de error:",
           error2
         );
       }
@@ -806,6 +889,8 @@ app.post(
 
           return res.sendStatus(200);
         }
+
+        return res.sendStatus(200);
       }
 
 
@@ -864,7 +949,7 @@ app.post(
 
 
       // =================================================
-      // EVITAR PROCESAR EL MISMO MENSAJE DOS VECES
+      // EVITAR PROCESAR MENSAJE DOS VECES
       // =================================================
 
       const messageId =
@@ -934,6 +1019,27 @@ app.post(
         }
       }
 
+      // Eliminar bloqueos de catálogo
+      // que hayan quedado antiguos.
+      for (
+        const [numero, iniciadoEn]
+        of catalogInProgress
+      ) {
+        if (
+          Date.now() -
+          iniciadoEn >
+          CATALOG_LOCK_MAX_MS
+        ) {
+          console.log(
+            `🔓 Eliminando bloqueo antiguo de catálogo: ${numero}`
+          );
+
+          catalogInProgress.delete(
+            numero
+          );
+        }
+      }
+
 
       const from =
         message.from;
@@ -944,13 +1050,6 @@ app.post(
 
       // =================================================
       // AUDIO / FOTO / DOCUMENTO DEL CLIENTE
-      // =================================================
-      //
-      // No intentamos interpretar archivos del cliente.
-      // Se deriva a humano.
-      //
-      // Esto evita que el bot responda tonteras después
-      // de un comprobante, audio o foto antigua.
       // =================================================
 
       if (
@@ -981,6 +1080,10 @@ app.post(
       if (
         message.type !== "text"
       ) {
+        console.log(
+          `🤐 Tipo de mensaje no procesado: ${message.type}`
+        );
+
         return res.sendStatus(200);
       }
 
@@ -995,7 +1098,24 @@ app.post(
 
 
       // =================================================
-      // SABER SI RESPONDIÓ UNA FOTO DEL CATÁLOGO ACTUAL
+      // LOG DE DIAGNÓSTICO
+      // =================================================
+
+      console.log(
+        `📩 TEXTO RECIBIDO | ${from} | original="${rawText}" | normalizado="${text}"`
+      );
+
+      console.log(
+        `📚 ¿Es solicitud de catálogo?: ${esSolicitudCatalogo(text)}`
+      );
+
+      console.log(
+        `👤 ¿Bot puede responder?: ${botPuedeResponder(from)}`
+      );
+
+
+      // =================================================
+      // SABER SI RESPONDIÓ FOTO DEL CATÁLOGO ACTUAL
       // =================================================
 
       const repliedMessageId =
@@ -1110,8 +1230,41 @@ app.post(
       if (
         esSolicitudCatalogo(text)
       ) {
-        // Si ya estamos enviando catálogo,
-        // NO empezar otro en paralelo.
+
+        console.log(
+          `📚 SOLICITUD DE CATÁLOGO recibida de ${from}: "${rawText}"`
+        );
+
+        const catalogStartedAt =
+          catalogInProgress.get(
+            from
+          );
+
+
+        // =================================================
+        // DESBLOQUEAR CATÁLOGO ANTIGUO
+        // =================================================
+
+        if (
+          catalogStartedAt &&
+          now -
+            catalogStartedAt >
+            CATALOG_LOCK_MAX_MS
+        ) {
+          console.log(
+            `🔓 Bloqueo antiguo de catálogo eliminado para ${from}`
+          );
+
+          catalogInProgress.delete(
+            from
+          );
+        }
+
+
+        // =================================================
+        // CATÁLOGO YA EN PROCESO
+        // =================================================
+
         if (
           catalogInProgress.has(
             from
@@ -1124,12 +1277,31 @@ app.post(
           return res.sendStatus(200);
         }
 
-        catalogInProgress.add(
-          from
+
+        // =================================================
+        // BLOQUEAR TEMPORALMENTE
+        // =================================================
+
+        catalogInProgress.set(
+          from,
+          Date.now()
         );
 
-        // Respondemos a Meta inmediatamente.
+        console.log(
+          `🚀 Iniciando envío de catálogo para ${from}`
+        );
+
+
+        // =================================================
+        // RESPONDER A META INMEDIATAMENTE
+        // =================================================
+
         res.sendStatus(200);
+
+
+        // =================================================
+        // ENVIAR CATÁLOGO EN SEGUNDO PLANO
+        // =================================================
 
         enviarCatalogoCompleto(
           phoneNumberId,
@@ -1138,7 +1310,7 @@ app.post(
           .catch(
             error => {
               console.error(
-                "ERROR EN ENVÍO DE CATÁLOGO:",
+                `❌ ERROR EN ENVÍO DE CATÁLOGO PARA ${from}:`,
                 error
               );
             }
@@ -1147,6 +1319,10 @@ app.post(
             () => {
               catalogInProgress.delete(
                 from
+              );
+
+              console.log(
+                `🔓 Catálogo desbloqueado para ${from}`
               );
             }
           );
@@ -1188,7 +1364,7 @@ app.post(
 
 
       // =================================================
-      // LOTE RESPONDIDO SOBRE FOTO DEL CATÁLOGO ACTUAL
+      // LOTE RESPONDIDO SOBRE FOTO CATÁLOGO ACTUAL
       // =================================================
 
       if (
@@ -1200,9 +1376,6 @@ app.post(
             from
           ) || [];
 
-        // Usamos nombre del archivo Drive,
-        // no mediaId, porque mediaId cambia
-        // cada vez que se sube a WhatsApp.
         const yaExiste =
           pedido.some(
             item =>
@@ -1659,8 +1832,6 @@ app.post(
             ]
           )
         ) {
-          // No repetir el mensaje largo durante
-          // una conversación activa.
           if (isNewConversation) {
             reply =
               WELCOME_MESSAGE;
@@ -1768,7 +1939,7 @@ app.post(
       );
 
       // Respondemos 200 para evitar que Meta
-      // reintente el mismo webhook una y otra vez.
+      // repita el webhook continuamente.
       return res.sendStatus(200);
     }
   }
