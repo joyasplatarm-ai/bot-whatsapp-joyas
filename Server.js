@@ -12,6 +12,7 @@ const DRIVE_FOLDER_ID =
   process.env.GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID;
 
 const GOOGLE_CREDS_PATH =
+  process.env.GOOGLE_APPLICATION_CREDENTIALS ||
   "/etc/secrets/google-service-account.json";
 
 console.log(
@@ -23,6 +24,20 @@ if (fs.existsSync(GOOGLE_CREDS_PATH)) {
   console.log(
     "GOOGLE CREDS SIZE:",
     fs.statSync(GOOGLE_CREDS_PATH).size
+  );
+}
+
+if (!VERIFY_TOKEN) {
+  console.warn("⚠️ Falta VERIFY_TOKEN");
+}
+
+if (!WHATSAPP_TOKEN) {
+  console.warn("⚠️ Falta WHATSAPP_TOKEN");
+}
+
+if (!DRIVE_FOLDER_ID) {
+  console.warn(
+    "⚠️ Falta GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID"
   );
 }
 
@@ -472,6 +487,12 @@ async function obtenerImagenesCatalogoDrive() {
     );
   }
 
+  if (!fs.existsSync(GOOGLE_CREDS_PATH)) {
+    throw new Error(
+      `No existe la credencial de Google Drive en ${GOOGLE_CREDS_PATH}`
+    );
+  }
+
   console.log(
     `📂 Buscando imágenes en carpeta Drive: ${DRIVE_FOLDER_ID}`
   );
@@ -632,17 +653,6 @@ async function enviarCatalogoCompleto(
 
 
     // =================================================
-    // MENSAJE INICIAL
-    // =================================================
-
-    await enviarTextoWhatsApp(
-      phoneNumberId,
-      to,
-      "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
-    );
-
-
-    // =================================================
     // OBTENER FOTOS
     // =================================================
 
@@ -669,6 +679,21 @@ async function enviarCatalogoCompleto(
 
       return;
     }
+
+
+    // =================================================
+    // MENSAJE INICIAL
+    // =================================================
+
+    await enviarTextoWhatsApp(
+      phoneNumberId,
+      to,
+      "¡Claro! 💎 Te envío nuestro catálogo completo para que puedas revisar todos los modelos y lotes disponibles actualmente."
+    );
+
+
+    let enviadas = 0;
+    let fallidas = 0;
 
 
     // =================================================
@@ -738,12 +763,18 @@ async function enviarCatalogoCompleto(
           console.log(
             `✅ Imagen enviada: ${imagen.name}`
           );
+
+          enviadas += 1;
+        } else {
+          fallidas += 1;
         }
 
         // Pequeña pausa entre imágenes
         await esperar(700);
 
       } catch (error) {
+        fallidas += 1;
+
         console.error(
           `❌ Error procesando ${imagen.name}:`,
           error.message
@@ -752,6 +783,27 @@ async function enviarCatalogoCompleto(
         // Una imagen con error NO cancela
         // todo el catálogo.
       }
+    }
+
+
+    // =================================================
+    // NO CONFIRMAR SI NINGUNA FOTO SE ENTREGÓ
+    // =================================================
+
+    if (enviadas === 0) {
+      if (botPuedeResponder(to)) {
+        await enviarTextoWhatsApp(
+          phoneNumberId,
+          to,
+          "No pude cargar los lotes en este momento 💎. Intenta nuevamente en unos minutos."
+        );
+      }
+
+      console.error(
+        `❌ CATÁLOGO SIN IMÁGENES ENTREGADAS PARA ${to}. Fallidas: ${fallidas}`
+      );
+
+      return;
     }
 
 
@@ -774,7 +826,7 @@ async function enviarCatalogoCompleto(
     );
 
     console.log(
-      `✅ CATÁLOGO TERMINADO PARA ${to}`
+      `✅ CATÁLOGO TERMINADO PARA ${to}. Enviadas: ${enviadas}. Fallidas: ${fallidas}.`
     );
 
   } catch (error) {
@@ -810,6 +862,42 @@ app.get(
   "/",
   (req, res) => {
     res.send("Bot activo");
+  }
+);
+
+
+// =====================================================
+// ESTADO TÉCNICO SIN EXPONER SECRETOS
+// =====================================================
+
+app.get(
+  "/health",
+  (req, res) => {
+    const googleCredentialsConfigured =
+      fs.existsSync(GOOGLE_CREDS_PATH);
+
+    const driveFolderConfigured =
+      Boolean(DRIVE_FOLDER_ID);
+
+    const whatsappConfigured =
+      Boolean(WHATSAPP_TOKEN);
+
+    res.status(
+      googleCredentialsConfigured &&
+      driveFolderConfigured &&
+      whatsappConfigured
+        ? 200
+        : 503
+    ).json({
+      ok:
+        googleCredentialsConfigured &&
+        driveFolderConfigured &&
+        whatsappConfigured,
+
+      googleCredentialsConfigured,
+      driveFolderConfigured,
+      whatsappConfigured
+    });
   }
 );
 
