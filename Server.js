@@ -259,6 +259,9 @@ function esSolicitudCatalogo(texto = "") {
     "me envias catalogo",
     "me envias el catalogo",
 
+    "me envia catalogo",
+    "me envia el catalogo",
+
     "me mandas catalogo",
     "me mandas el catalogo",
 
@@ -477,6 +480,195 @@ async function enviarImagenWhatsApp(
 
 
 // =====================================================
+// ENVIAR DOCUMENTO PDF POR WHATSAPP
+// =====================================================
+
+async function enviarDocumentoWhatsApp(
+  phoneNumberId,
+  to,
+  mediaId,
+  filename
+) {
+  const response =
+    await fetch(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+      {
+        method: "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${WHATSAPP_TOKEN}`,
+
+          "Content-Type":
+            "application/json"
+        },
+
+        body: JSON.stringify({
+          messaging_product:
+            "whatsapp",
+
+          recipient_type:
+            "individual",
+
+          to,
+
+          type:
+            "document",
+
+          document: {
+            id: mediaId,
+
+            filename:
+              filename
+          }
+        })
+      }
+    );
+
+  if (!response.ok) {
+    const error =
+      await response.text();
+
+    throw new Error(
+      `Error enviando PDF: ${error}`
+    );
+  }
+
+  const data =
+    await response.json();
+
+  return (
+    data?.messages?.[0]?.id ||
+    null
+  );
+}
+
+
+// =====================================================
+// OBTENER PDF MAS RECIENTE DESDE DRIVE
+// =====================================================
+
+async function obtenerPdfCatalogoDrive() {
+  if (!DRIVE_FOLDER_ID) {
+    throw new Error(
+      "Falta la variable GOOGLE_DRIVE_CATALOGO_COMPLETO_FOLDER_ID"
+    );
+  }
+
+  if (!fs.existsSync(GOOGLE_CREDS_PATH)) {
+    throw new Error(
+      `No existe la credencial de Google Drive en ${GOOGLE_CREDS_PATH}`
+    );
+  }
+
+  const response =
+    await drive.files.list({
+      q:
+        `'${DRIVE_FOLDER_ID}' in parents and mimeType = 'application/pdf' and trashed = false`,
+
+      fields:
+        "files(id,name,mimeType,modifiedTime,size)",
+
+      pageSize:
+        100,
+
+      orderBy:
+        "modifiedTime desc"
+    });
+
+  const pdfs =
+    response.data.files || [];
+
+  console.log(
+    `📄 PDFs encontrados en Drive: ${pdfs.length}`
+  );
+
+  return pdfs[0] || null;
+}
+
+
+// =====================================================
+// SUBIR PDF DE DRIVE A WHATSAPP
+// =====================================================
+
+async function subirDocumentoDriveAWhatsApp(
+  file,
+  phoneNumberId
+) {
+  const response =
+    await drive.files.get(
+      {
+        fileId:
+          file.id,
+
+        alt:
+          "media"
+      },
+      {
+        responseType:
+          "arraybuffer"
+      }
+    );
+
+  const buffer =
+    Buffer.from(response.data);
+
+  const form =
+    new FormData();
+
+  form.append(
+    "messaging_product",
+    "whatsapp"
+  );
+
+  form.append(
+    "file",
+
+    new Blob(
+      [buffer],
+      {
+        type:
+          "application/pdf"
+      }
+    ),
+
+    "Catalogo_completo_Joyas_Plata_RM.pdf"
+  );
+
+  const uploadResponse =
+    await fetch(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
+      {
+        method:
+          "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${WHATSAPP_TOKEN}`
+        },
+
+        body:
+          form
+      }
+    );
+
+  const data =
+    await uploadResponse.json();
+
+  if (
+    !uploadResponse.ok ||
+    !data.id
+  ) {
+    throw new Error(
+      `Error subiendo PDF a WhatsApp: ${JSON.stringify(data)}`
+    );
+  }
+
+  return data.id;
+}
+
+
+// =====================================================
 // OBTENER CATÁLOGO DESDE GOOGLE DRIVE
 // =====================================================
 
@@ -649,6 +841,68 @@ async function enviarCatalogoCompleto(
     currentCatalogMessageIds.set(
       to,
       new Set()
+    );
+
+
+    // =================================================
+    // PRIORIDAD: PDF MAS RECIENTE
+    // =================================================
+
+    const pdfCatalogo =
+      await obtenerPdfCatalogoDrive();
+
+    if (pdfCatalogo) {
+      if (!botPuedeResponder(to)) {
+        console.log(
+          `🛑 PDF no enviado: conversación tomada por humano ${to}`
+        );
+
+        return;
+      }
+
+      await enviarTextoWhatsApp(
+        phoneNumberId,
+        to,
+        "¡Claro! 💎 Te envío nuestro catálogo completo actualizado en PDF."
+      );
+
+      const mediaId =
+        await subirDocumentoDriveAWhatsApp(
+          pdfCatalogo,
+          phoneNumberId
+        );
+
+      const sentMessageId =
+        await enviarDocumentoWhatsApp(
+          phoneNumberId,
+          to,
+          mediaId,
+          "Catalogo_completo_Joyas_Plata_RM.pdf"
+        );
+
+      if (!sentMessageId) {
+        throw new Error(
+          "WhatsApp no devolvió ID al enviar el PDF"
+        );
+      }
+
+      if (botPuedeResponder(to)) {
+        await enviarTextoWhatsApp(
+          phoneNumberId,
+          to,
+          "¡Listo! 💎 Revisa el PDF y, si te interesa algún modelo o lote, indícanos su página o envíanos una captura."
+        );
+      }
+
+      console.log(
+        `✅ PDF DE CATÁLOGO ENVIADO A ${to}: ${pdfCatalogo.name}`
+      );
+
+      return;
+    }
+
+    console.log(
+      "ℹ️ No hay PDF en la carpeta. Se enviarán las imágenes como respaldo."
     );
 
 
